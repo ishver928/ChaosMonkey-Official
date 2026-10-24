@@ -126,12 +126,25 @@ def _run(run_id: str, scan_id: str, files: list[SourceFile], findings: list[Find
         }
 
         docker_bin = docker_runner._docker_bin() or "docker"
+
+        def _on_line(line: str) -> None:
+            # Live-visible narration while the container is still running (GET /api/sandbox/{id}
+            # is polled concurrently and reads rec.log as it grows). scrub() is defense-in-depth:
+            # probe narration never includes raw secret/PII values by construction.
+            rec.log.append(scrub(line))
+            if len(rec.log) > 300:
+                del rec.log[: len(rec.log) - 300]
+
         run_result = docker_runner.run_verification(
             run_id, project_dir, image, entry.run_cmd or [], entry.port, plan, docker_bin,
-            gvisor=avail.gvisor,
+            gvisor=avail.gvisor, on_line=_on_line,
         )
 
-    rec.log = run_result.log[-40:]
+    # Replace with the canonical final log (includes the docker-command lines emitted before
+    # streaming started, which the live callback above never saw). scrub() again here: the
+    # docker-command lines include the fake canary env values, which are harmless, but this is
+    # the one place that never got the live callback's scrub() pass.
+    rec.log = [scrub(line) for line in run_result.log[-200:]]
     if run_result.status != "ok":
         rec.status = "error"
         rec.error = scrub(run_result.error)

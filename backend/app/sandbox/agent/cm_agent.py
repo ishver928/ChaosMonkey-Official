@@ -23,6 +23,14 @@ from cm_probes import (
 )
 from cm_target import HttpTarget
 
+def _narrate(event: str, message: str, **extra) -> None:
+    """Prints one JSON line of human-readable progress immediately (the Dockerfiles set
+    PYTHONUNBUFFERED=1, so this reaches the backend as it happens, not just at exit) — this is
+    what lets the UI show live narration of what the sandbox is doing, not just a final result.
+    Distinct from the single final results line (which has no "event" key)."""
+    print(json.dumps({"event": event, "message": message, **extra}), flush=True)
+
+
 RULE_TO_PROBE = {
     "CM-A001": "sqli", "CM-J003": "sqli",
     "CM-J001": "xss",
@@ -62,16 +70,21 @@ def run(plan: dict) -> dict:
     findings = plan.get("static_findings", [])
     results: list[dict] = []
 
+    _narrate("start", f"Sandbox agent started · canary {canary.tag}", canary_tag=canary.tag)
+    _narrate("waiting", "Waiting for the target app to come up inside the sandbox…")
     reachable = wait_for_target(target)
     if not reachable:
+        _narrate("unreachable", "Target app never became reachable — marking findings not_testable.")
         for f in findings:
             results.append({"ruleId": f.get("ruleId"), "status": "not_testable",
                              "probe_id": "n/a", "evidence": "", "detail": "target app never became reachable"})
         return {"results": results, "canary_tag": canary.tag, "requests_sent": target.requests_sent}
 
+    _narrate("reachable", "Target app is up. Crawling for pages, forms, and parameters…")
     static_routes = routes_from_static_findings(findings) + plan.get("routes_hint", [])
     pages = crawl(target, static_routes)
     all_paths = sorted({p.path for p in pages})
+    _narrate("crawl_done", f"Discovered {len(all_paths)} page(s): {', '.join(all_paths) or '(none)'}")
     # One entry per discovered <form>, keeping its actual method — a form only "works" when
     # probed with the method it declares (most of these fixtures/apps 400 or no-op on the
     # wrong verb, which would otherwise look like a false negative).
@@ -84,19 +97,27 @@ def run(plan: dict) -> dict:
     needs_pii_seed = any(RULE_TO_PROBE.get(f.get("ruleId", "")) == "pii_rest" for f in findings)
     pii_seeded = False
     if needs_pii_seed:
+        _narrate("pii_seed", "Looking for a registration/profile form to seed canary name+DOB…")
         form_hit = find_pii_form(pages)
         if form_hit is not None:
             pii_seeded = submit_pii_form(target, form_hit[0], form_hit[1], canary)
+            _narrate("pii_seeded" if pii_seeded else "pii_seed_failed",
+                     f"Submitted canary name/DOB to {form_hit[0].path}" if pii_seeded
+                     else f"Found a form at {form_hit[0].path} but submitting canary data failed")
+        else:
+            _narrate("pii_seed_skipped", "No registration/profile form found to seed.")
 
-    for f in findings:
+    for i, f in enumerate(findings, 1):
         rule = f.get("ruleId", "")
         file_path = f.get("file", "")
         probe_kind = RULE_TO_PROBE.get(rule)
         if rule in NOT_TESTABLE_DYNAMICALLY or probe_kind is None and rule not in ("CM-S009", "CM-S010", "CM-S011", "CM-S012"):
+            _narrate("probe_skip", f"[{i}/{len(findings)}] {rule}: skipped — unsafe or meaningless to run dynamically", rule=rule)
             results.append({"ruleId": rule, "status": "not_testable", "probe_id": "n/a",
                              "evidence": "", "detail": "no dynamic probe mapped for this rule; "
                                                         "unsafe or meaningless to execute dynamically"})
             continue
+        _narrate("probe_start", f"[{i}/{len(findings)}] {rule}: probing ({probe_kind})…", rule=rule, probe_kind=probe_kind)
         if probe_kind == "secret":
             r = probe_exposed_secret(target, all_paths or ["/"], canary)
         elif probe_kind == "pii_rest":
@@ -137,8 +158,14 @@ def run(plan: dict) -> dict:
                         r = candidate
         else:
             r = {"status": "not_testable", "probe_id": "n/a", "evidence": "", "detail": "no probe implemented"}
+        status = r.get("status", "not_confirmed")
+        shout = "CONFIRMED" if status == "confirmed" else status
+        _narrate("probe_result", f"[{i}/{len(findings)}] {rule}: {shout} — {r.get('detail', '')}",
+                 rule=rule, status=status)
         results.append({"ruleId": rule, "file": file_path, **r})
 
+    _narrate("done", f"Finished: {sum(1 for r in results if r.get('status') == 'confirmed')} of "
+                      f"{len(results)} finding(s) confirmed, {target.requests_sent} request(s) sent.")
     return {"results": results, "canary_tag": canary.tag, "requests_sent": target.requests_sent,
             "discovered_paths": all_paths}
 

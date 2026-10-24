@@ -18,10 +18,12 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Callable
 
 RUNNER_PY_IMAGE = "chaosmonkey-runner-python:1"
 RUNNER_NODE_IMAGE = "chaosmonkey-runner-node:1"
@@ -90,6 +92,40 @@ def _run(cmd: list[str], timeout: int, log: list[str]) -> subprocess.CompletedPr
     return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
 
 
+@dataclass
+class StreamedResult:
+    lines: list[str]
+    returncode: int
+    timed_out: bool
+
+
+def _run_streaming(cmd: list[str], timeout: int, on_line: Callable[[str], None] | None = None) -> StreamedResult:
+    """Like ``_run``, but reads stdout line by line as the process runs (stderr merged in) and
+    calls ``on_line`` for each one immediately — this is what lets a concurrent poller see the
+    probe agent's narration while it's still running, not only after it exits."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    lines: list[str] = []
+
+    def _reader() -> None:
+        assert proc.stdout is not None
+        for raw in proc.stdout:
+            line = raw.rstrip("\n")
+            lines.append(line)
+            if on_line is not None:
+                on_line(line)
+
+    reader_thread = threading.Thread(target=_reader, daemon=True)
+    reader_thread.start()
+    reader_thread.join(timeout)
+    timed_out = reader_thread.is_alive()
+    if timed_out:
+        proc.kill()
+        reader_thread.join(5)
+    else:
+        proc.wait(timeout=5)
+    return StreamedResult(lines=lines, returncode=(proc.returncode if proc.returncode is not None else -1), timed_out=timed_out)
+
+
 def _hardening_flags(read_only_root: bool = True) -> list[str]:
     """Flags shared by every sandboxed container. ``--network`` is added separately by the
     caller (each run gets its own network, created/torn down per run)."""
@@ -107,7 +143,8 @@ def _hardening_flags(read_only_root: bool = True) -> list[str]:
 
 
 def run_verification(run_id: str, project_dir: Path, image: str, run_cmd: list[str],
-                      app_port: int, plan: dict, docker_bin: str, gvisor: bool = False) -> SandboxRunResult:
+                      app_port: int, plan: dict, docker_bin: str, gvisor: bool = False,
+                      on_line: Callable[[str], None] | None = None) -> SandboxRunResult:
     """Spin up an internal-only network, launch the app container, then the probe-agent
     container on the same network, collect the agent's JSON, and tear everything down."""
     log: list[str] = []
@@ -171,14 +208,26 @@ def run_verification(run_id: str, project_dir: Path, image: str, run_cmd: list[s
             "-w", "/agent",
             RUNNER_PY_IMAGE, "python", "/agent/cm_agent.py", "/project/_cm_plan.json",
         ]
-        r2 = _run(agent_cmd, HARD_TIMEOUT_S, log)
-        if r2.returncode != 0 and not r2.stdout.strip():
+        log.append("$ " + " ".join(agent_cmd))
+        # Streamed (not subprocess.run): the agent prints narration lines as it probes, and
+        # on_line lets the caller mirror them onto a live-visible log in near real time, rather
+        # than only after the whole run finishes.
+        def _mirror(line: str) -> None:
+            log.append(line)
+            if on_line is not None:
+                on_line(line)
+
+        streamed = _run_streaming(agent_cmd, HARD_TIMEOUT_S, on_line=_mirror)
+        if streamed.timed_out:
+            return SandboxRunResult(run_id=run_id, status="error", log=log, error="hard timeout exceeded")
+        agent_stdout = "\n".join(streamed.lines).strip()
+        if streamed.returncode != 0 and not agent_stdout:
             return SandboxRunResult(run_id=run_id, status="error", log=log,
-                                     error=f"probe agent failed: {r2.stderr.strip()[:800]}")
+                                     error=f"probe agent exited {streamed.returncode} with no output")
         try:
-            out = json.loads(r2.stdout.strip().splitlines()[-1]) if r2.stdout.strip() else {}
+            out = json.loads(agent_stdout.splitlines()[-1]) if agent_stdout else {}
         except json.JSONDecodeError:
-            out = {"error": "agent produced non-JSON output", "raw": r2.stdout[:500]}
+            out = {"error": "agent produced non-JSON output", "raw": agent_stdout[:500]}
         return SandboxRunResult(run_id=run_id, status="ok", agent_output=out, log=log)
     except subprocess.TimeoutExpired:
         return SandboxRunResult(run_id=run_id, status="error", log=log, error="hard timeout exceeded")
