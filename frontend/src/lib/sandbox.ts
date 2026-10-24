@@ -25,6 +25,8 @@ export interface SandboxRunRecord {
   results: SandboxFindingResult[]
   canary_tag: string
   requests_sent: number
+  /** Growing transcript: setup commands plus the probe agent's live narration. */
+  log: string[]
 }
 
 async function postJson<T>(path: string, body: unknown, timeoutMs: number): Promise<T> {
@@ -64,21 +66,42 @@ export async function startSandboxRun(files: SourceFile[], findings: Finding[], 
 
 /** Polls GET /api/sandbox/{id} until it leaves queued/running, a timeout elapses, or
  * ``signal`` aborts. Resolves with whatever the last poll returned (which may still be
- * queued/running if it timed out — callers should check ``status``). */
-export async function pollSandboxRun(runId: string, signal: AbortSignal, maxWaitMs = 90_000): Promise<SandboxRunRecord> {
+ * queued/running if it timed out — callers should check ``status``).
+ *
+ * ``onTick`` fires on *every* poll, including while still queued/running — the record's
+ * ``log`` grows in near real time as the sandboxed probe agent narrates what it's doing, so a
+ * caller can render that as a live feed instead of only seeing output once the whole run ends. */
+export async function pollSandboxRun(
+  runId: string, signal: AbortSignal, onTick?: (rec: SandboxRunRecord) => void, maxWaitMs = 90_000,
+): Promise<SandboxRunRecord> {
   const deadline = Date.now() + maxWaitMs
   let last: SandboxRunRecord | null = null
   while (Date.now() < deadline) {
     if (signal.aborted) throw new DOMException('aborted', 'AbortError')
     last = await getJson<SandboxRunRecord>(`/api/sandbox/${runId}`, signal)
+    onTick?.(last)
     if (last.status !== 'queued' && last.status !== 'running') return last
     await new Promise((resolve, reject) => {
-      const t = setTimeout(resolve, 1200)
+      const t = setTimeout(resolve, 900)
       signal.addEventListener('abort', () => { clearTimeout(t); reject(new DOMException('aborted', 'AbortError')) }, { once: true })
     })
   }
   if (last) return last
   throw new Error('Sandbox run timed out before the backend responded even once')
+}
+
+/** Turns one raw ``SandboxRunRecord.log`` line into something readable: the agent emits JSON
+ * progress events (``{"event": "...", "message": "..."}``); the setup phase emits raw ``$
+ * docker ...`` command lines. Both are shown, styled differently by the caller via ``kind``. */
+export function describeLogLine(line: string): { kind: 'event' | 'raw'; text: string; status?: string } {
+  if (line.startsWith('$ ')) return { kind: 'raw', text: line }
+  try {
+    const parsed = JSON.parse(line) as { event?: string; message?: string; status?: string }
+    if (parsed.event && parsed.message) return { kind: 'event', text: parsed.message, status: parsed.status }
+  } catch {
+    // not JSON — fall through
+  }
+  return { kind: 'raw', text: line }
 }
 
 /** Merges verification results onto a findings array by finding id. Findings with no matching
