@@ -1,0 +1,23 @@
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+*.log
+
+# Python (backend)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Secrets: commit .env.example files only
+.env
+.env.*
+!.env.example
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
