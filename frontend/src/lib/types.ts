@@ -64,6 +64,20 @@ export interface Finding {
   confidence: number
   note?: string
   name?: string
+  /** Set only once a backend Docker-sandbox verification run has touched this finding.
+   * Additive / optional: absent means "never dynamically verified", not "safe". */
+  verification?: VerificationResult
+}
+
+export type VerificationStatus = 'confirmed' | 'not_confirmed' | 'not_testable' | 'skipped'
+
+export interface VerificationResult {
+  status: VerificationStatus
+  probe_id: string
+  /** Short, already-redacted excerpt — never a raw secret/PII value. */
+  evidence: string
+  detail: string
+  sandbox_run_id?: string | null
 }
 
 export interface FileSummary {
