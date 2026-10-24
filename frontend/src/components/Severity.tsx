@@ -1,6 +1,6 @@
 import type { Category, Severity } from '@/lib/types'
 import { CATEGORY_SHORT, SEVERITY_LABEL } from '@/lib/severity'
-import { Database, KeyRound, UserRound } from 'lucide-react'
+import { Code, Database, KeyRound, UserRound } from 'lucide-react'
 
 /** Distinct shapes per severity so colour is never the only signal. */
 export function SeverityIcon({ severity, size = 11 }: { severity: Severity; size?: number }) {
@@ -22,7 +22,7 @@ export function SeverityBadge({ severity }: { severity: Severity }) {
 }
 
 export function CategoryIcon({ category, size = 15 }: { category: Category; size?: number }) {
-  const Icon = category === 'secrets' ? KeyRound : category === 'pii' ? UserRound : Database
+  const Icon = category === 'secrets' ? KeyRound : category === 'pii' ? UserRound : category === 'code' ? Code : Database
   return <Icon size={size} strokeWidth={2.2} aria-hidden="true" />
 }
 

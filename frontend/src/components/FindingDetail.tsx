@@ -61,12 +61,9 @@ export function FindingDetail({
   const rule = RULE_BY_ID[finding.ruleId]
   const isRevealed = revealed.has(finding.id)
 
-  const fullMaskedLine = useMemo(() => {
-    if (!source) return undefined
-    const masked = applyMasks(source.content, maskRangesFor(related, source.path, source.content))
-    return masked.split('\n')[finding.line - 1]
-  }, [source, related, finding.line])
-  const advice = useMemo(() => adviceFor(finding, fullMaskedLine), [finding, fullMaskedLine])
+  const maskedContent = useMemo(() => (source ? applyMasks(source.content, maskRangesFor(related, source.path, source.content)) : undefined), [source, related])
+  const fullMaskedLine = maskedContent?.split('\n')[finding.line - 1]
+  const advice = useMemo(() => adviceFor(finding, fullMaskedLine, maskedContent), [finding, fullMaskedLine, maskedContent])
 
   const localReady = localModel.enabled && localModel.status.state === 'ready' && !!localModel.model
   const [engine, setEngine] = useState<'builtin' | 'local'>('builtin')

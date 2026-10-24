@@ -1,5 +1,5 @@
 export type Severity = 'critical' | 'high' | 'medium' | 'low'
-export type Category = 'secrets' | 'pii' | 'storage'
+export type Category = 'secrets' | 'pii' | 'storage' | 'code'
 export type Language = 'javascript' | 'typescript' | 'python' | 'env' | 'json' | 'yaml' | 'toml' | 'ini' | 'sql' | 'shell' | 'text'
 
 export interface SourceFile {
@@ -38,6 +38,10 @@ export interface Rule {
   detect: (ctx: DetectContext) => RawMatch[]
   /** Generic rules are dropped when they overlap a hit from a more specific rule. */
   generic?: boolean
+  /** CWE id from rules/catalog.json. */
+  cwe?: string
+  /** Drop this rule's hit when one of these rules fires on the same line. */
+  supersededBy?: string[]
 }
 
 export type RuleMeta = Omit<Rule, 'detect'>
@@ -64,6 +68,8 @@ export interface Finding {
   confidence: number
   note?: string
   name?: string
+  /** CWE id of the rule (from rules/catalog.json). */
+  cwe?: string
 }
 
 export interface FileSummary {
@@ -75,7 +81,7 @@ export interface FileSummary {
 
 export interface SkippedFile {
   path: string
-  reason: 'too-large' | 'unsupported' | 'binary' | 'ignored-dir'
+  reason: 'too-large' | 'unsupported' | 'binary' | 'ignored-dir' | 'test-or-generated'
 }
 
 export interface ScanReport {
