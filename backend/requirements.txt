@@ -1,0 +1,9 @@
+# Chaos Monkey backend — all local, no cloud AI SDKs.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+httpx>=0.27            # local-only HTTP (Ollama on 127.0.0.1); never used for cloud AI
+numpy>=1.26            # cosine similarity for the vector store
+scikit-learn>=1.4      # offline TF-IDF embedding fallback
+python-multipart>=0.0.9  # file uploads
+pytest>=8.0
