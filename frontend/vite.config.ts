@@ -37,6 +37,9 @@ export default defineConfig({
       '@': path.resolve(import.meta.dirname, './src'),
     },
   },
-  server: { host: '127.0.0.1', port, open: true },
-  preview: { host: '127.0.0.1', port, open: true },
+  // Proxy /api to the local Chaos Monkey backend so the browser only ever talks to its
+  // own origin (keeps the offline guard and CSP happy). The backend is optional: the app
+  // falls back to the in-browser scanner when it is not running.
+  server: { host: '127.0.0.1', port, open: true, proxy: { '/api': 'http://127.0.0.1:8000' } },
+  preview: { host: '127.0.0.1', port, open: true, proxy: { '/api': 'http://127.0.0.1:8000' } },
 })

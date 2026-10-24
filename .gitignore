@@ -21,3 +21,17 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+# Backend
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.env
+backend/*.db
+backend/chaosmonkey.db
+*.pyc
+.pytest_cache/
+demo/**/__pycache__/
+
+# Demo runtime canary (generated)
+demo/apps/SECRET_CANARY.txt

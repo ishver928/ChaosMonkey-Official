@@ -1,0 +1,884 @@
+[
+  {
+    "id": "CWE-89",
+    "name": "SQL Injection",
+    "description": "Untrusted input alters the structure of a SQL query.",
+    "consequences": "Read, modify, or delete arbitrary database records; authentication bypass.",
+    "mitigation": "Use parameterized queries / prepared statements; never concatenate input into SQL.",
+    "indicators": [
+      "sql",
+      "query",
+      "execute",
+      "cursor",
+      "select",
+      "insert",
+      "where",
+      "db"
+    ],
+    "pattern_rules": [
+      "CM-A001",
+      "CM-J003"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "cur.execute(f\"SELECT * FROM users WHERE name = '{name}'\")",
+        "fixed": "cur.execute(\"SELECT * FROM users WHERE name = ?\", (name,))"
+      },
+      "javascript": {
+        "vulnerable": "db.query(`SELECT * FROM users WHERE id = ${id}`)",
+        "fixed": "db.query(\"SELECT * FROM users WHERE id = ?\", [id])"
+      }
+    }
+  },
+  {
+    "id": "CWE-79",
+    "name": "Cross-site Scripting (XSS)",
+    "description": "Untrusted input is rendered in a page without escaping, running attacker script.",
+    "consequences": "Session theft, account takeover, defacement, credential phishing.",
+    "mitigation": "Escape output by context; use textContent; sanitize HTML; set a CSP.",
+    "indicators": [
+      "innerhtml",
+      "dangerouslysetinnerhtml",
+      "render",
+      "html",
+      "document",
+      "write"
+    ],
+    "pattern_rules": [
+      "CM-J001"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "el.innerHTML = \"Hello \" + userName",
+        "fixed": "el.textContent = \"Hello \" + userName"
+      }
+    }
+  },
+  {
+    "id": "CWE-78",
+    "name": "OS Command Injection",
+    "description": "Untrusted input is passed to a shell, running arbitrary commands.",
+    "consequences": "Full remote code execution on the host.",
+    "mitigation": "Avoid the shell; pass argument arrays; validate/allowlist input.",
+    "indicators": [
+      "subprocess",
+      "os.system",
+      "exec",
+      "shell",
+      "popen",
+      "child_process",
+      "command"
+    ],
+    "pattern_rules": [
+      "CM-A002",
+      "CM-J002"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "os.system(\"ping \" + host)",
+        "fixed": "subprocess.run([\"ping\", \"-c\", \"1\", host], shell=False)"
+      },
+      "javascript": {
+        "vulnerable": "exec(`ping ${host}`)",
+        "fixed": "execFile(\"ping\", [\"-c\", \"1\", host])"
+      }
+    }
+  },
+  {
+    "id": "CWE-22",
+    "name": "Path Traversal",
+    "description": "User-controlled paths let an attacker read/write files outside the intended directory.",
+    "consequences": "Disclosure of sensitive files (/etc/passwd), overwrite of config, RCE.",
+    "mitigation": "Resolve and confirm the path stays within a safe base directory; allowlist names.",
+    "indicators": [
+      "open",
+      "readfile",
+      "path",
+      "join",
+      "filename",
+      "download",
+      "sendfile"
+    ],
+    "pattern_rules": [
+      "CM-A007"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "open(os.path.join(BASE, request.args[\"f\"]))",
+        "fixed": "p = os.path.realpath(os.path.join(BASE, name))\nassert p.startswith(os.path.realpath(BASE))\nopen(p)"
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-798",
+    "name": "Use of Hard-coded Credentials",
+    "description": "Secrets embedded in source are exposed to anyone with the code.",
+    "consequences": "Account/API takeover, financial loss, lateral movement.",
+    "mitigation": "Load secrets from environment or a secrets manager; rotate leaked keys.",
+    "indicators": [
+      "api_key",
+      "apikey",
+      "secret",
+      "token",
+      "password",
+      "key",
+      "credential"
+    ],
+    "pattern_rules": [
+      "CM-S001",
+      "CM-S002",
+      "CM-S003",
+      "CM-S004",
+      "CM-S005",
+      "CM-S006",
+      "CM-S007",
+      "CM-S008",
+      "CM-S014"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "API_KEY = \"sk-fake-DEADBEEF1234567890example\"",
+        "fixed": "API_KEY = os.environ[\"API_KEY\"]"
+      },
+      "javascript": {
+        "vulnerable": "const API_KEY = \"sk-fake-DEADBEEF1234567890example\"",
+        "fixed": "const API_KEY = process.env.API_KEY"
+      }
+    }
+  },
+  {
+    "id": "CWE-259",
+    "name": "Use of Hard-coded Password",
+    "description": "A password constant is compiled into the application.",
+    "consequences": "Anyone with the binary/source can authenticate.",
+    "mitigation": "Store password hashes; read credentials from configuration.",
+    "indicators": [
+      "password",
+      "passwd",
+      "pwd",
+      "login",
+      "auth"
+    ],
+    "pattern_rules": [
+      "CM-S014",
+      "CM-D003"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "if password == \"hunter2_demo\": grant()",
+        "fixed": "if verify(password, stored_hash): grant()"
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-321",
+    "name": "Use of Hard-coded Cryptographic Key",
+    "description": "A signing/encryption key is embedded in code.",
+    "consequences": "Attackers forge tokens or decrypt data.",
+    "mitigation": "Generate keys at deploy time; store in a KMS/env.",
+    "indicators": [
+      "secret_key",
+      "jwt_secret",
+      "signing",
+      "hmac",
+      "session"
+    ],
+    "pattern_rules": [
+      "CM-D004"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "SECRET_KEY = \"dev-demo-secret\"",
+        "fixed": "SECRET_KEY = os.environ[\"SECRET_KEY\"]"
+      },
+      "javascript": {
+        "vulnerable": "jwt.sign(payload, \"dev-demo-secret\")",
+        "fixed": "jwt.sign(payload, process.env.JWT_SECRET)"
+      }
+    }
+  },
+  {
+    "id": "CWE-327",
+    "name": "Use of a Broken or Risky Cryptographic Algorithm",
+    "description": "Weak algorithms (DES, RC4) are used for protection.",
+    "consequences": "Data can be decrypted or forged.",
+    "mitigation": "Use vetted algorithms (AES-GCM, SHA-256+).",
+    "indicators": [
+      "des",
+      "rc4",
+      "md5",
+      "sha1",
+      "crypto",
+      "cipher"
+    ],
+    "pattern_rules": [
+      "CM-D002"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-328",
+    "name": "Use of Weak Hash",
+    "description": "Fast/broken hashes (MD5, SHA-1) are used for passwords.",
+    "consequences": "Offline cracking recovers passwords quickly.",
+    "mitigation": "Use bcrypt/scrypt/argon2 with a salt.",
+    "indicators": [
+      "md5",
+      "sha1",
+      "hashlib",
+      "createhash",
+      "hash",
+      "password"
+    ],
+    "pattern_rules": [
+      "CM-D002"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "hashlib.md5(password.encode()).hexdigest()",
+        "fixed": "bcrypt.hashpw(password.encode(), bcrypt.gensalt())"
+      },
+      "javascript": {
+        "vulnerable": "crypto.createHash(\"md5\").update(password).digest(\"hex\")",
+        "fixed": "await bcrypt.hash(password, 12)"
+      }
+    }
+  },
+  {
+    "id": "CWE-502",
+    "name": "Deserialization of Untrusted Data",
+    "description": "Deserializing attacker data instantiates arbitrary objects.",
+    "consequences": "Remote code execution.",
+    "mitigation": "Use safe formats (JSON); yaml.safe_load; never pickle untrusted data.",
+    "indicators": [
+      "pickle",
+      "yaml",
+      "load",
+      "loads",
+      "marshal",
+      "deserialize"
+    ],
+    "pattern_rules": [
+      "CM-A004"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "data = pickle.loads(request.body)",
+        "fixed": "data = json.loads(request.body)"
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-918",
+    "name": "Server-Side Request Forgery (SSRF)",
+    "description": "The server fetches a user-supplied URL, reaching internal services.",
+    "consequences": "Access to cloud metadata, internal APIs, port scanning.",
+    "mitigation": "Allowlist hosts; block private IP ranges; disable redirects.",
+    "indicators": [
+      "requests",
+      "fetch",
+      "urlopen",
+      "url",
+      "get",
+      "axios"
+    ],
+    "pattern_rules": [],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-352",
+    "name": "Cross-Site Request Forgery (CSRF)",
+    "description": "State-changing requests lack an anti-forgery token.",
+    "consequences": "Actions performed as the victim without consent.",
+    "mitigation": "Use CSRF tokens and SameSite cookies.",
+    "indicators": [
+      "csrf",
+      "token",
+      "form",
+      "post",
+      "cookie"
+    ],
+    "pattern_rules": [
+      "CM-D005"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-287",
+    "name": "Improper Authentication",
+    "description": "Authentication can be bypassed or is not enforced.",
+    "consequences": "Unauthorized access to accounts and data.",
+    "mitigation": "Enforce auth on every sensitive route; verify credentials server-side.",
+    "indicators": [
+      "login",
+      "auth",
+      "token",
+      "verify",
+      "session",
+      "jwt"
+    ],
+    "pattern_rules": [
+      "CM-J005"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-306",
+    "name": "Missing Authentication for Critical Function",
+    "description": "A sensitive endpoint is reachable without authentication.",
+    "consequences": "Anyone can invoke privileged actions.",
+    "mitigation": "Require auth/authorization decorators on admin and mutating routes.",
+    "indicators": [
+      "admin",
+      "route",
+      "endpoint",
+      "app.get",
+      "app.post",
+      "delete"
+    ],
+    "pattern_rules": [],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-862",
+    "name": "Missing Authorization",
+    "description": "No check that the caller may access the specific resource.",
+    "consequences": "Horizontal/vertical privilege escalation.",
+    "mitigation": "Verify ownership/role on every object access.",
+    "indicators": [
+      "admin",
+      "role",
+      "authorize",
+      "owner",
+      "permission"
+    ],
+    "pattern_rules": [],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-639",
+    "name": "Authorization Bypass Through User-Controlled Key (IDOR)",
+    "description": "An object id from the request is trusted without an ownership check.",
+    "consequences": "Read/modify other users' records by changing an id.",
+    "mitigation": "Scope queries to the authenticated user; use unguessable ids.",
+    "indicators": [
+      "id",
+      "params",
+      "findbyid",
+      "userid",
+      "notes",
+      "object"
+    ],
+    "pattern_rules": [],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-200",
+    "name": "Exposure of Sensitive Information",
+    "description": "Sensitive data is returned where it should not be.",
+    "consequences": "PII/secret disclosure.",
+    "mitigation": "Return only needed fields; strip secrets/PII from responses.",
+    "indicators": [
+      "response",
+      "json",
+      "return",
+      "res.json",
+      "serialize",
+      "profile"
+    ],
+    "pattern_rules": [
+      "CM-P007"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-532",
+    "name": "Insertion of Sensitive Information into Log File",
+    "description": "Secrets or PII are written to logs.",
+    "consequences": "Credential/PII leakage via log aggregation.",
+    "mitigation": "Redact sensitive fields before logging.",
+    "indicators": [
+      "console.log",
+      "print",
+      "logger",
+      "logging",
+      "log"
+    ],
+    "pattern_rules": [
+      "CM-P006"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "logging.info(\"user password: %s\", password)",
+        "fixed": "logging.info(\"user %s logged in\", user_id)"
+      },
+      "javascript": {
+        "vulnerable": "console.log(\"token\", token)",
+        "fixed": "console.log(\"auth ok for\", userId)"
+      }
+    }
+  },
+  {
+    "id": "CWE-312",
+    "name": "Cleartext Storage of Sensitive Information",
+    "description": "Sensitive data is stored unencrypted.",
+    "consequences": "Disclosure if storage is accessed.",
+    "mitigation": "Encrypt at rest; hash passwords.",
+    "indicators": [
+      "localstorage",
+      "sessionstorage",
+      "save",
+      "store",
+      "write",
+      "file"
+    ],
+    "pattern_rules": [
+      "CM-D001",
+      "CM-D003",
+      "CM-D006"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "localStorage.setItem(\"token\", jwt)",
+        "fixed": "// keep the token in an HttpOnly cookie set by the server"
+      }
+    }
+  },
+  {
+    "id": "CWE-311",
+    "name": "Missing Encryption of Sensitive Data",
+    "description": "Sensitive data is transmitted/stored without encryption.",
+    "consequences": "Interception or disclosure.",
+    "mitigation": "Use TLS; encrypt stored secrets.",
+    "indicators": [
+      "http",
+      "verify",
+      "ssl",
+      "tls",
+      "cookie",
+      "secure"
+    ],
+    "pattern_rules": [
+      "CM-D005"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-434",
+    "name": "Unrestricted Upload of File with Dangerous Type",
+    "description": "Uploaded files are not validated and can be executed.",
+    "consequences": "RCE via uploaded scripts.",
+    "mitigation": "Allowlist extensions/MIME; store outside the web root.",
+    "indicators": [
+      "upload",
+      "file",
+      "save",
+      "multipart",
+      "filename"
+    ],
+    "pattern_rules": [],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-601",
+    "name": "Open Redirect",
+    "description": "A user-controlled redirect target is not validated.",
+    "consequences": "Phishing via trusted-looking links.",
+    "mitigation": "Allowlist redirect destinations.",
+    "indicators": [
+      "redirect",
+      "location",
+      "url",
+      "next",
+      "return_to"
+    ],
+    "pattern_rules": [],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-611",
+    "name": "XML External Entity (XXE)",
+    "description": "An XML parser resolves external entities.",
+    "consequences": "File disclosure, SSRF, DoS.",
+    "mitigation": "Disable DTD/external entity resolution.",
+    "indicators": [
+      "xml",
+      "etree",
+      "parse",
+      "entity",
+      "dtd",
+      "lxml"
+    ],
+    "pattern_rules": [],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-94",
+    "name": "Code Injection",
+    "description": "Untrusted input is evaluated as code.",
+    "consequences": "Arbitrary code execution.",
+    "mitigation": "Never eval input; use safe parsers.",
+    "indicators": [
+      "eval",
+      "exec",
+      "compile",
+      "function",
+      "vm"
+    ],
+    "pattern_rules": [
+      "CM-A003"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "eval(request.args[\"expr\"])",
+        "fixed": "import ast; ast.literal_eval(expr)"
+      },
+      "javascript": {
+        "vulnerable": "eval(req.query.expr)",
+        "fixed": "JSON.parse(req.query.data)"
+      }
+    }
+  },
+  {
+    "id": "CWE-117",
+    "name": "Improper Output Neutralization for Logs (Log Injection)",
+    "description": "Unsanitized input in logs forges or corrupts log entries.",
+    "consequences": "Log forging, hiding attacks.",
+    "mitigation": "Strip newlines/encode input before logging.",
+    "indicators": [
+      "log",
+      "logger",
+      "print",
+      "console.log"
+    ],
+    "pattern_rules": [
+      "CM-P006"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-209",
+    "name": "Generation of Error Message Containing Sensitive Information",
+    "description": "Error handlers leak stack traces, secrets, or prompts.",
+    "consequences": "Disclosure of internals/credentials.",
+    "mitigation": "Return generic errors; log details server-side only.",
+    "indicators": [
+      "except",
+      "catch",
+      "error",
+      "traceback",
+      "stack",
+      "debug"
+    ],
+    "pattern_rules": [
+      "CM-A005"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "return str(e) + \"\\nKEY=\" + API_KEY",
+        "fixed": "app.logger.exception(e); return \"Internal error\", 500"
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-295",
+    "name": "Improper Certificate Validation",
+    "description": "TLS certificate verification is disabled.",
+    "consequences": "Man-in-the-middle interception.",
+    "mitigation": "Enable verification; pin certs where appropriate.",
+    "indicators": [
+      "verify",
+      "rejectunauthorized",
+      "ssl",
+      "insecure",
+      "tls"
+    ],
+    "pattern_rules": [
+      "CM-A006",
+      "CM-D007"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "requests.get(url, verify=False)",
+        "fixed": "requests.get(url)  # verify defaults to True"
+      },
+      "javascript": {
+        "vulnerable": "https.request({ rejectUnauthorized: false })",
+        "fixed": "https.request({ rejectUnauthorized: true })"
+      }
+    }
+  },
+  {
+    "id": "CWE-330",
+    "name": "Use of Insufficiently Random Values",
+    "description": "Predictable randomness is used for security tokens.",
+    "consequences": "Session/token prediction.",
+    "mitigation": "Use a CSPRNG (secrets, crypto.randomBytes).",
+    "indicators": [
+      "random",
+      "math.random",
+      "rand",
+      "token",
+      "uuid"
+    ],
+    "pattern_rules": [],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-489",
+    "name": "Active Debug Code",
+    "description": "Debug mode is enabled in production.",
+    "consequences": "RCE via the debugger, information disclosure.",
+    "mitigation": "Disable debug in production builds.",
+    "indicators": [
+      "debug",
+      "app.run",
+      "flask",
+      "development"
+    ],
+    "pattern_rules": [
+      "CM-A005"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "app.run(debug=True)",
+        "fixed": "app.run(debug=False)"
+      },
+      "javascript": {
+        "vulnerable": "",
+        "fixed": ""
+      }
+    }
+  },
+  {
+    "id": "CWE-1004",
+    "name": "Sensitive Cookie Without HttpOnly Flag",
+    "description": "Session cookies are readable by JavaScript.",
+    "consequences": "Token theft via XSS.",
+    "mitigation": "Set HttpOnly, Secure, SameSite on session cookies.",
+    "indicators": [
+      "cookie",
+      "setcookie",
+      "httponly",
+      "samesite",
+      "secure"
+    ],
+    "pattern_rules": [
+      "CM-D005"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "res.cookie(\"sid\", id)",
+        "fixed": "res.cookie(\"sid\", id, { httpOnly: true, secure: true, sameSite: \"strict\" })"
+      }
+    }
+  },
+  {
+    "id": "CWE-942",
+    "name": "Permissive Cross-domain Policy (CORS)",
+    "description": "CORS allows any origin together with credentials.",
+    "consequences": "Authenticated data readable by any site.",
+    "mitigation": "Allowlist specific origins; avoid * with credentials.",
+    "indicators": [
+      "cors",
+      "origin",
+      "access-control",
+      "credentials"
+    ],
+    "pattern_rules": [
+      "CM-J004"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "app.use(cors({ origin: \"*\", credentials: true }))",
+        "fixed": "app.use(cors({ origin: \"https://app.example.com\", credentials: true }))"
+      }
+    }
+  },
+  {
+    "id": "CWE-347",
+    "name": "Improper Verification of Cryptographic Signature",
+    "description": "A JWT/signature is trusted without verification.",
+    "consequences": "Forged tokens accepted; auth bypass.",
+    "mitigation": "Verify signatures; reject alg:none.",
+    "indicators": [
+      "jwt",
+      "decode",
+      "verify",
+      "alg",
+      "none",
+      "signature"
+    ],
+    "pattern_rules": [
+      "CM-J005"
+    ],
+    "examples": {
+      "python": {
+        "vulnerable": "",
+        "fixed": ""
+      },
+      "javascript": {
+        "vulnerable": "const data = jwt.decode(token)",
+        "fixed": "const data = jwt.verify(token, SECRET, { algorithms: [\"HS256\"] })"
+      }
+    }
+  }
+]
