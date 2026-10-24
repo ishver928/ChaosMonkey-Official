@@ -52,12 +52,13 @@ def health() -> dict:
 
 
 def _build_ingested(req: ScanRequest) -> Ingested:
+    inc = req.include_test_paths
     if req.files:
-        return ingest_files(req.files)
+        return ingest_files(req.files, inc)
     if req.code is not None:
-        return ingest_code(req.code, req.filename)
+        return ingest_code(req.code, req.filename, inc)
     if req.path:
-        return ingest_path(req.path)
+        return ingest_path(req.path, inc)
     raise HTTPException(status_code=400, detail="Provide 'code', 'files', or 'path'.")
 
 

@@ -41,8 +41,17 @@ def _bucket(score: float) -> Severity:
     return "info"
 
 
+# Score band per severity label (docs/SEVERITY.md). Detector findings take their label from
+# the rule catalog; the numeric score is clamped into that band so the two always agree.
+BANDS: dict[str, tuple[float, float]] = {
+    "critical": (9.0, 10.0), "high": (7.0, 8.9), "medium": (4.0, 6.9), "low": (1.0, 3.9), "info": (0.0, 0.9),
+}
+
+
 def score_finding(finding: Finding, raw_value: str | None = None) -> Finding:
     """Compute severity_score, severity and severity_reason for a finding in place."""
+    from ..detectors.catalog import rule_info
+
     base = CWE_BASE.get(finding.cwe_id or "", CATEGORY_BASE.get(finding.category, 5.0))
     score = base
     reasons = [f"base {base:.1f} for {finding.cwe_id or finding.category}"]
@@ -63,7 +72,7 @@ def score_finding(finding: Finding, raw_value: str | None = None) -> Finding:
         reasons.append("personal data involved")
 
     # Modifier: injection/auth on a code file is directly exploitable.
-    if finding.category in {"injection", "auth"}:
+    if finding.category in {"injection", "auth"} or finding.cwe_id in {"CWE-89", "CWE-78", "CWE-94", "CWE-502"}:
         score += 0.3
         reasons.append("directly exploitable class (+0.3)")
 
@@ -72,9 +81,19 @@ def score_finding(finding: Finding, raw_value: str | None = None) -> Finding:
         score -= 1.5
         reasons.append("low-confidence model-only finding (-1.5)")
 
-    score = max(0.0, min(10.0, score))
+    info = rule_info(finding.ruleId)
+    if info is not None:
+        # One rubric: the rule's catalog severity is the label; clamp the score into its band.
+        lo, hi = BANDS[info.severity]
+        clamped = max(lo, min(hi, score))
+        if clamped != score:
+            reasons.append(f"clamped to {info.severity} band {lo:.1f}-{hi:.1f} (docs/SEVERITY.md)")
+        score = clamped
+        finding.severity = info.severity  # type: ignore[assignment]
+    else:
+        score = max(0.0, min(10.0, score))
+        finding.severity = _bucket(score)
     finding.severity_score = round(score, 1)
-    finding.severity = _bucket(score)
     finding.severity_reason = "; ".join(reasons)
     return finding
 

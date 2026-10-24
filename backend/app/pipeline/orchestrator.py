@@ -146,11 +146,8 @@ def _lang(path: str):
 
 
 def _rules_run(enabled: set[str] | None) -> int:
-    from ..detectors.js_rules import JS_RULES
-    from ..detectors.python_ast import AST_RULES
-    from ..detectors.rules import RULES
-    total = len(RULES) + len(AST_RULES) + len(JS_RULES)
-    return total if enabled is None else len(enabled)
+    from .detect import ALL_RULE_IDS
+    return len(ALL_RULE_IDS) if enabled is None else len(enabled)
 
 
 # --- Chaos Mode ----------------------------------------------------------
