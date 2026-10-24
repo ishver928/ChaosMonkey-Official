@@ -14,6 +14,7 @@ Docker network created for each run has no gateway (`internal: true` equivalent 
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -45,10 +46,27 @@ class SandboxRunResult:
     error: str = ""
 
 
+_FIXED_DOCKER_CANDIDATES = [
+    r"C:\Program Files\Docker\Docker\resources\bin\docker.exe",
+    r"C:\Program Files\Docker\Docker\resources\docker.exe",
+]
+
+
 def _docker_bin() -> str | None:
-    for candidate in ("docker",):
-        if shutil.which(candidate):
-            return candidate
+    """Locate the docker CLI. ``shutil.which`` covers the common case, but a backend launched
+    from an IDE/tool that doesn't inherit the user's full shell PATH (Docker Desktop installs
+    put ``docker.exe`` in its own resources dir, which isn't always on PATH) would otherwise
+    report "unavailable" even though Docker Desktop is installed and running."""
+    found = shutil.which("docker")
+    if found:
+        return found
+    candidates = [Path(c) for c in _FIXED_DOCKER_CANDIDATES]
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        candidates.append(Path(local_app_data) / "Programs" / "DockerDesktop" / "resources" / "bin" / "docker.exe")
+    for c in candidates:
+        if c.is_file():
+            return str(c)
     return None
 
 

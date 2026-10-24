@@ -11,6 +11,28 @@ from app.models.schemas import Finding, SourceFile
 from app.sandbox import docker_runner, service as sandbox_service
 
 
+def test_docker_bin_falls_back_to_known_install_paths(monkeypatch, tmp_path):
+    """shutil.which can miss docker.exe when the backend is launched from a process that
+    didn't inherit the user's full shell PATH (a common real-world case on Windows with
+    Docker Desktop) — the fallback locations must be checked before giving up."""
+    monkeypatch.setattr(docker_runner.shutil, "which", lambda name: None)
+    monkeypatch.setattr(docker_runner, "_FIXED_DOCKER_CANDIDATES", [])  # isolate from the real host filesystem
+    expected = tmp_path / "Programs" / "DockerDesktop" / "resources" / "bin" / "docker.exe"
+    expected.parent.mkdir(parents=True)
+    expected.write_text("not a real binary, just needs to exist for .is_file()")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+
+    found = docker_runner._docker_bin()
+    assert found == str(expected)
+
+
+def test_docker_bin_none_when_nothing_found(monkeypatch, tmp_path):
+    monkeypatch.setattr(docker_runner.shutil, "which", lambda name: None)
+    monkeypatch.setattr(docker_runner, "_FIXED_DOCKER_CANDIDATES", [])  # isolate from the real host filesystem
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))  # empty dir, nothing installed there
+    assert docker_runner._docker_bin() is None
+
+
 def test_docker_unavailable_marks_findings_not_testable(monkeypatch):
     monkeypatch.setattr(
         docker_runner, "check_docker",
