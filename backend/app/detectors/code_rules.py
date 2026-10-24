@@ -116,7 +116,9 @@ def _p008(ctx: DetectContext) -> list[RawMatch]:
             add(m.start(1), m.end(), m.group(1))
     elif ctx.language in {"javascript", "typescript"}:
         for m in _PII_ORM_JS.finditer(c):
-            add(m.start(), m.end(), m.group(1))
+            # Schema type tokens are case-sensitive: `ssn: string` is a TS annotation, not a column.
+            if re.search(r"\b(?:String|Date|DataTypes|Sequelize)\b", m.group(0)):
+                add(m.start(), m.end(), m.group(1))
     return out
 
 

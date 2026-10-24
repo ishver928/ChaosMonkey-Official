@@ -225,6 +225,20 @@ def _p005(ctx):
 
 _PII_WORDS = re.compile(r"\b(users?|customers?|patients?|members?|email|e_?mail|ssn|social_?security|password|passwd|dob|birth\w*|date_?of_?birth|full_?name|first_?name|last_?name|phone\w*|card\w*|credit\w*|req\.body|request\.(?:body|json|form)|profile|account|address)\b", re.I)
 
+def code_parts(expr: str) -> str:
+    """Code parts of an expression: string-literal contents dropped, ${...}/f-string {...} kept.
+
+    Mirrors ``codeParts`` in frontend/src/lib/rules.ts.
+    """
+    interpolations: list[str] = []
+    for m in re.finditer(r"\$\{([^}]*)\}", expr):
+        interpolations.append(m.group(1))
+    for m in re.finditer(r"\bf([\"'])((?:\\.|(?!\1).)*)\1", expr):
+        interpolations.extend(re.findall(r"\{([^}]*)\}", m.group(2)))
+    stripped = re.sub(r"([\"'`])(?:\\.|(?!\1).)*\1", " ", expr)
+    return f"{stripped} {' '.join(interpolations)}"
+
+
 def _p006(ctx):
     if ctx.language not in CODE_LANGS:
         return []
@@ -234,7 +248,7 @@ def _p006(ctx):
     for ln in ctx.content.split("\n"):
         for m in re_log.finditer(ln):
             args = ln[m.end():]
-            w = _PII_WORDS.search(args)
+            w = _PII_WORDS.search(code_parts(args))
             if not w:
                 continue
             out.append(RawMatch("CM-P006", offset + m.start(), offset + len(ln.rstrip()), False, 0.75, note=f"logs `{w.group(0)}`"))
@@ -371,7 +385,7 @@ def _d006(ctx):
         for m in re_w.finditer(ln):
             if re.match(r"^(res|response|reply|process\.stdout|sys\.stdout)\.write$", m.group(1)):
                 continue
-            args = ln[m.end():]
+            args = code_parts(ln[m.end():])
             hit = re.search(r"\b(passwords?|passwd|secrets?|tokens?|api_?key|apiKey|ssn|credit\w*|card\w*|users?|customers?|patients?|emails?)\b", args, re.I)
             if not hit:
                 continue
