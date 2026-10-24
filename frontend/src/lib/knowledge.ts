@@ -180,7 +180,7 @@ function fixFor(f: Finding, line: string): Fix {
 
 interface Entry { why: string; steps: string[] }
 
-const KB: Record<string, Entry> = {
+export const KB: Record<string, Entry> = {
   'CM-S001': { why: 'Bots scrape public repos for AKIA keys within minutes of a push. With the matching secret, an attacker spins up GPU instances in every region and you find out from a five-figure bill, or they quietly copy your S3 buckets.', steps: ['Deactivate the key in IAM, then create a new one.', 'Load credentials from the environment or an IAM role, never from source.', 'Check CloudTrail for activity from this key ID since it was committed.'] },
   'CM-S002': { why: 'The secret half of an AWS key pair is what actually signs requests. Anyone holding it can act as that IAM user: read databases, delete backups, or mine crypto on your account.', steps: ['Delete the access key in IAM and issue a new one.', 'Prefer short-lived credentials (SSO, instance roles) over long-lived keys.', 'Review CloudTrail for unfamiliar API calls.'] },
   'CM-S003': { why: 'A GitHub token can clone private repos, push malicious commits, or edit CI workflows to steal more secrets. Supply-chain attacks often start with exactly one leaked token.', steps: ['Revoke the token under Settings → Developer settings.', 'Use fine-grained tokens with a single repo and an expiry.', 'Audit recent pushes and workflow changes.'] },
