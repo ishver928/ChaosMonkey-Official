@@ -72,12 +72,14 @@ def run(plan: dict) -> dict:
     static_routes = routes_from_static_findings(findings) + plan.get("routes_hint", [])
     pages = crawl(target, static_routes)
     all_paths = sorted({p.path for p in pages})
-    param_by_path: dict[str, list[str]] = {}
+    # One entry per discovered <form>, keeping its actual method — a form only "works" when
+    # probed with the method it declares (most of these fixtures/apps 400 or no-op on the
+    # wrong verb, which would otherwise look like a false negative).
+    forms_flat: list[tuple[str, str, list[str]]] = []
     for p in pages:
         for form in p.forms:
             action = form.action or p.path
-            param_by_path.setdefault(action, [])
-            param_by_path[action].extend(form.fields)
+            forms_flat.append((action, form.method.upper() or "GET", form.fields))
 
     needs_pii_seed = any(RULE_TO_PROBE.get(f.get("ruleId", "")) == "pii_rest" for f in findings)
     pii_seeded = False
@@ -108,25 +110,26 @@ def run(plan: dict) -> dict:
                 r = probe_pii_at_rest(db_path, canary)
         elif probe_kind == "debug_config":
             r = {"status": "not_confirmed", "probe_id": "debug-v1", "evidence": "", "detail": "no probed path yielded a traceback"}
-            for path, params in (param_by_path.items() or [("/", ["x"])]):
-                candidate = probe_debug_traceback(target, path, (params or ["x"])[0])
+            for path, method, fields in (forms_flat or [("/", "GET", ["x"])]):
+                candidate = probe_debug_traceback(target, path, (fields or ["x"])[0])
                 if candidate.get("status") == "confirmed":
                     r = candidate
                     break
         elif probe_kind in ("sqli", "xss", "cmdi"):
             probe_fn = {"sqli": probe_sqli, "xss": probe_reflected_xss, "cmdi": probe_command_injection}[probe_kind]
-            # Try every discovered form/param combo (bounded) rather than only the first one
-            # found overall — different rules care about different endpoints (a login form
-            # isn't where reflected XSS would show up, etc.), so one arbitrary pick is unreliable.
-            candidates = [(path, p) for path, fields in param_by_path.items()
+            # Try every discovered form/param combo (bounded), using each form's *own* method
+            # (GET vs POST) — different rules care about different endpoints (a login form
+            # isn't where reflected XSS would show up, etc.), so one arbitrary pick is
+            # unreliable, and probing a POST-only form with GET would silently never trigger it.
+            candidates = [(path, method, p) for path, method, fields in forms_flat
                           for p in candidate_params(fields)][:8]
             if not candidates:
                 r = {"status": "not_testable", "probe_id": f"{probe_kind}-v1", "evidence": "",
                      "detail": "no form/param discovered to exercise"}
             else:
                 r = None
-                for path, param in candidates:
-                    candidate = probe_fn(target, path, param, canary)
+                for path, method, param in candidates:
+                    candidate = probe_fn(target, path, param, canary, method=method)
                     if candidate.get("status") == "confirmed":
                         r = candidate
                         break
