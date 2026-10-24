@@ -8,10 +8,12 @@ import json
 import time
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
+from pydantic import BaseModel
 from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
 
 from ..config import settings
 from ..kb.store import get_kb
+from ..llm import client as llm_client
 from ..llm.client import check_status
 from ..models.schemas import ScanReport, ScanRequest
 from ..pipeline.fixes import apply_all_fixes
@@ -48,7 +50,33 @@ def health() -> dict:
             "endpoints": [settings.ollama_url],
         },
         "version": "1.0.0",
+        # --- additive (deterministic local AI) ---
+        "ai": llm_client.ai_status_dict(),
+        "local_only": llm_client.local_only_report(),
     }
+
+
+class AiToggle(BaseModel):
+    enabled: bool
+
+
+@router.get("/ai")
+def ai_get() -> dict:
+    """Local AI status: off by default; the selected model comes from LLM_MODEL."""
+    return {**llm_client.ai_status_dict(), "pin": llm_client.pin_dict(llm_client.ai_state().pin)}
+
+
+@router.post("/ai")
+def ai_toggle(req: AiToggle) -> dict:
+    """Turn local AI explanations on/off. Turning on pins the selected model's digest first."""
+    if not req.enabled:
+        llm_client.disable_ai()
+        return ai_get()
+    try:
+        llm_client.enable_ai()
+    except (llm_client.ModelNotInstalled, llm_client.LocalOnlyError, llm_client.LlmError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ai_get()
 
 
 def _build_ingested(req: ScanRequest) -> Ingested:

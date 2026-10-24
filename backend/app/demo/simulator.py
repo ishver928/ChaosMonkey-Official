@@ -75,7 +75,7 @@ def launch(scenario: str, variant: str, timeout: float = 15.0):
         if proc.poll() is not None:
             break
         try:
-            httpx.get(f"{app.base}/", timeout=0.5)
+            httpx.get(f"{app.base}/", timeout=0.5, trust_env=False)
             ready = True
             break
         except Exception:
@@ -96,7 +96,7 @@ def launch(scenario: str, variant: str, timeout: float = 15.0):
 def _get(base: str, path: str, **kw) -> httpx.Response:
     url = f"{base}{path}"
     _assert_local(httpx.URL(url).host)
-    return httpx.get(url, timeout=5.0, **kw)
+    return httpx.get(url, timeout=5.0, trust_env=False, **kw)
 
 
 @dataclass

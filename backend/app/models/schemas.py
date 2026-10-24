@@ -70,6 +70,10 @@ class Finding(BaseModel):
     fix_diff: str = ""
     fix_verified: bool = False
     fix_note: str = ""
+    # Local AI enrichment: "none" (AI off), "ai" (model explanation/fix used) or "ai_fallback"
+    # (model output rejected; the rule's built-in explanation and fix are shown).
+    ai_status: Literal["none", "ai", "ai_fallback"] = "none"
+    ai_detail: str = ""
     source: FindingSource = "detector"
     severity_score: float = 0.0
     severity_reason: str = ""
@@ -98,6 +102,9 @@ class PrivacyAttestation(BaseModel):
     top_p: float
     llm_mock: bool
     endpoints_checked: list[str] = Field(default_factory=list)
+    ai_enabled: bool = False
+    model_digest: Optional[str] = None
+    prompt_version: Optional[str] = None
 
 
 class ScanReport(BaseModel):

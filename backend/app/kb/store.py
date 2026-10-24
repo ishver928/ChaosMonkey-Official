@@ -88,25 +88,11 @@ class KnowledgeBase:
             self.embed_backend = "keyword"
 
     def _embed_ollama(self, texts: list[str]) -> Optional[np.ndarray]:
-        if settings.llm_mock:
-            return None
-        try:
-            import httpx
+        # Routed through the single LLM client; returns None (TF-IDF fallback) unless AI is on.
+        from ..llm.client import embed
 
-            vecs = []
-            with httpx.Client(timeout=5.0) as client:
-                for t in texts:
-                    r = client.post(
-                        f"{settings.ollama_url}/api/embeddings",
-                        json={"model": settings.embed_model, "prompt": t},
-                    )
-                    if r.status_code != 200:
-                        return None
-                    vecs.append(r.json()["embedding"])
-            arr = np.asarray(vecs, dtype=np.float32)
-            return arr
-        except Exception:
-            return None
+        vecs = embed(texts)
+        return np.asarray(vecs, dtype=np.float32) if vecs else None
 
     def _embed_query(self, text: str) -> Optional[np.ndarray]:
         if self.embed_backend.startswith("ollama"):
