@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Dismissal, ScanReport, SkippedFile, SourceFile } from '@/lib/types'
+import type { Dismissal, Finding, ScanReport, SkippedFile, SourceFile } from '@/lib/types'
 import { RULE_META } from '@/lib/rules'
 import { detectLanguage } from '@/lib/language'
 import { scanInWorker } from '@/lib/scanClient'
@@ -149,6 +149,12 @@ export default function App() {
     if (current?.sources) void runScan(current.sources, current.report.name, { seedId: current.report.seedId, skipped: current.report.skipped })
   }, [current, runScan])
 
+  /** Merges sandbox verification results (from an explicit, user-triggered Docker run) back
+   * onto the current report's findings. Does not touch anything else about the report. */
+  const applySandboxVerification = useCallback((findings: Finding[]) => {
+    setCurrent((c) => (c ? { ...c, report: { ...c.report, findings } } : c))
+  }, [])
+
   const resetDemo = useCallback(() => {
     resetAll()
     window.location.hash = '/scan'
@@ -190,6 +196,7 @@ export default function App() {
             onDemo={loadDemo}
             scanning={!!progress}
             localModel={{ enabled: settings.ollamaEnabled, model: settings.ollamaModel, status: ollama }}
+            onVerifyFindings={applySandboxVerification}
           />
         )}
         {route === 'history' && <HistoryView history={history} setHistory={setHistory} onOpen={openHistory} currentId={current?.report.id} />}
