@@ -69,6 +69,7 @@ class Finding(BaseModel):
     remediation_steps: list[str] = Field(default_factory=list)
     fix_diff: str = ""
     fix_verified: bool = False
+    fix_note: str = ""
     source: FindingSource = "detector"
     severity_score: float = 0.0
     severity_reason: str = ""
