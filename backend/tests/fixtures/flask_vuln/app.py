@@ -66,10 +66,12 @@ def login():
     username = request.values.get("username", "")
     password = request.values.get("password", "")
     conn = db()
-    # VULNERABLE (CWE-89): string-built SQL.
-    query = "SELECT id, username FROM users WHERE username = '" + username + "' AND password = '" + password + "'"
     try:
-        cur = conn.execute(query)
+        # VULNERABLE (CWE-89): string-built SQL, built inline at the call site.
+        cur = conn.execute(
+            "SELECT id, username FROM users WHERE username = '" + username +
+            "' AND password = '" + password + "'"
+        )
         row = cur.fetchone()
     except sqlite3.OperationalError as exc:
         return f"db error: {exc}", 500
