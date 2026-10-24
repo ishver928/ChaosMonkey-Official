@@ -7,3 +7,4 @@ numpy>=1.26            # cosine similarity for the vector store
 scikit-learn>=1.4      # offline TF-IDF embedding fallback
 python-multipart>=0.0.9  # file uploads
 pytest>=8.0
+flask>=3.0
