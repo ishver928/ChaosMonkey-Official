@@ -10,7 +10,7 @@ const app = express();
 app.use(express.urlencoded({ extended: true }));
 
 const API_KEY = process.env.CM_CANARY_API_KEY || "sk-fake-default";
-const db = new Database(path.join(__dirname, "store.db"));
+const db = new Database(path.join(process.env.CM_DB_DIR || __dirname, "store.db"));
 db.exec(`CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY, username TEXT, password TEXT, name TEXT, dob TEXT
 )`);

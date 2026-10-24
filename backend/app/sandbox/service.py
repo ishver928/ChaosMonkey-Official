@@ -112,9 +112,10 @@ def _run(run_id: str, scan_id: str, files: list[SourceFile], findings: list[Find
         canary_seed, canary_env = make_canary_seed(run_id)
         db_path_guess = _guess_db_path(file_map)
 
+        import os as _os
         plan = {
             "target_host": "localhost", "target_port": entry.port,
-            "db_path": f"/project/{db_path_guess}" if db_path_guess else None,
+            "db_path": f"/data/{_os.path.basename(db_path_guess)}" if db_path_guess else None,
             "canary_seed": canary_seed,
             "static_findings": [
                 {"ruleId": f.ruleId, "file": f.file, "snippet": f.snippet or f.evidence_snippet}
@@ -178,7 +179,10 @@ def _guess_db_path(file_map: dict[str, str]) -> str | None:
         m = rx.search(content)
         if m:
             return m.group(1)
-    return None
+    # Best-effort default: both fixture apps (and most small Flask/Express+SQLite demos)
+    # name their file this; the agent reports not_testable if it turns out not to exist.
+    uses_sqlite = any(re.search(r"sqlite3|better-sqlite3", c, re.I) for c in file_map.values())
+    return "store.db" if uses_sqlite else None
 
 
 def attach_verification(findings: list[Finding], results: list[SandboxFindingResult]) -> None:

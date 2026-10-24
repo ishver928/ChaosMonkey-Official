@@ -11,7 +11,7 @@ from flask import Flask, request
 app = Flask(__name__)
 app.config["DEBUG"] = False
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "store.db")
+DB_PATH = os.path.join(os.environ.get("CM_DB_DIR", os.path.dirname(__file__)), "store.db")
 API_KEY = os.environ.get("REAL_API_KEY")  # no fallback secret baked in
 
 

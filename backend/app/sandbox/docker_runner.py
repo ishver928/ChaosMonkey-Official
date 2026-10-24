@@ -73,6 +73,8 @@ def _run(cmd: list[str], timeout: int, log: list[str]) -> subprocess.CompletedPr
 
 
 def _hardening_flags(read_only_root: bool = True) -> list[str]:
+    """Flags shared by every sandboxed container. ``--network`` is added separately by the
+    caller (each run gets its own network, created/torn down per run)."""
     flags = [
         "--user", "10001:10001",
         "--cap-drop", "ALL",
@@ -80,10 +82,7 @@ def _hardening_flags(read_only_root: bool = True) -> list[str]:
         "--pids-limit", "128",
         "--memory", "384m",
         "--cpus", "1",
-        "--network", None,  # filled in by caller
     ]
-    # caller fills --network; keep this helper focused on the rest
-    flags = [f for f in flags if f is not None]
     if read_only_root:
         flags += ["--read-only", "--tmpfs", "/tmp:rw,size=64m"]
     return flags
@@ -98,6 +97,7 @@ def run_verification(run_id: str, project_dir: Path, image: str, run_cmd: list[s
     app_name = f"cm-app-{run_id}"
     agent_name = f"cm-agent-{run_id}"
     ro_copy = None
+    data_dir = None
     try:
         _run([docker_bin, "network", "create", "--internal", net_name], 15, log)
 
@@ -105,15 +105,23 @@ def run_verification(run_id: str, project_dir: Path, image: str, run_cmd: list[s
         ro_copy = Path(tempfile.mkdtemp(prefix="cm_sbx_ro_"))
         shutil.copytree(project_dir, ro_copy, dirs_exist_ok=True)
 
+        # A small read-write scratch dir, shared (via a host bind mount) between the app
+        # container and the probe-agent container, for the one thing a read-only app
+        # legitimately needs to write at run time: its own SQLite file. This is NOT the
+        # project mount — the project itself stays read-only the whole time.
+        data_dir = Path(tempfile.mkdtemp(prefix="cm_sbx_data_"))
+
         app_cmd = [
             docker_bin, "run", "-d", "--rm", "--name", app_name,
             "--network", net_name,
             *_hardening_flags(read_only_root=True),
             "-v", f"{ro_copy}:/project:ro",
+            "-v", f"{data_dir}:/data:rw",
             "-w", "/project",
         ]
         for k, v in plan.get("env", {}).items():
             app_cmd += ["-e", f"{k}={v}"]
+        app_cmd += ["-e", "CM_DB_DIR=/data"]
         if image == RUNNER_NODE_IMAGE:
             app_cmd += ["-e", "NODE_PATH=/node_modules"]
         app_cmd += [image, *run_cmd]
@@ -124,6 +132,10 @@ def run_verification(run_id: str, project_dir: Path, image: str, run_cmd: list[s
 
         _wait_for_log_or_sleep(docker_bin, app_name, log)
 
+        # The app and probe-agent are separate containers; "localhost" inside the agent
+        # container means the agent itself. Resolve the app by its container name, which the
+        # shared user-defined network resolves via Docker's embedded DNS.
+        plan = {**plan, "target_host": app_name}
         plan_path = ro_copy / "_cm_plan.json"
         plan_path.write_text(json.dumps(plan), encoding="utf-8")
 
@@ -133,6 +145,7 @@ def run_verification(run_id: str, project_dir: Path, image: str, run_cmd: list[s
             *_hardening_flags(read_only_root=True),
             "-v", f"{AGENT_DIR}:/agent:ro",
             "-v", f"{ro_copy}:/project:ro",
+            "-v", f"{data_dir}:/data:ro",
             "-w", "/agent",
             RUNNER_PY_IMAGE, "python", "/agent/cm_agent.py", "/project/_cm_plan.json",
         ]
@@ -155,6 +168,8 @@ def run_verification(run_id: str, project_dir: Path, image: str, run_cmd: list[s
         subprocess.run([docker_bin, "network", "rm", net_name], capture_output=True, timeout=10)
         if ro_copy is not None:
             shutil.rmtree(ro_copy, ignore_errors=True)
+        if data_dir is not None:
+            shutil.rmtree(data_dir, ignore_errors=True)
 
 
 def _wait_for_log_or_sleep(docker_bin: str, app_name: str, log: list[str]) -> None:

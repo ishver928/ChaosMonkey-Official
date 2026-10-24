@@ -114,19 +114,24 @@ def run(plan: dict) -> dict:
                     r = candidate
                     break
         elif probe_kind in ("sqli", "xss", "cmdi"):
-            target_path = next((p for p in param_by_path if p), None)
-            if target_path is None:
+            probe_fn = {"sqli": probe_sqli, "xss": probe_reflected_xss, "cmdi": probe_command_injection}[probe_kind]
+            # Try every discovered form/param combo (bounded) rather than only the first one
+            # found overall — different rules care about different endpoints (a login form
+            # isn't where reflected XSS would show up, etc.), so one arbitrary pick is unreliable.
+            candidates = [(path, p) for path, fields in param_by_path.items()
+                          for p in candidate_params(fields)][:8]
+            if not candidates:
                 r = {"status": "not_testable", "probe_id": f"{probe_kind}-v1", "evidence": "",
                      "detail": "no form/param discovered to exercise"}
             else:
-                params = candidate_params(param_by_path[target_path])
-                param = params[0] if params else "q"
-                if probe_kind == "sqli":
-                    r = probe_sqli(target, target_path, param, canary)
-                elif probe_kind == "xss":
-                    r = probe_reflected_xss(target, target_path, param, canary)
-                else:
-                    r = probe_command_injection(target, target_path, param, canary)
+                r = None
+                for path, param in candidates:
+                    candidate = probe_fn(target, path, param, canary)
+                    if candidate.get("status") == "confirmed":
+                        r = candidate
+                        break
+                    if r is None or r.get("status") == "not_testable":
+                        r = candidate
         else:
             r = {"status": "not_testable", "probe_id": "n/a", "evidence": "", "detail": "no probe implemented"}
         results.append({"ruleId": rule, "file": file_path, **r})

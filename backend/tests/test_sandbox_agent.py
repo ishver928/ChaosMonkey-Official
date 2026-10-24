@@ -66,6 +66,17 @@ def test_sqli_not_confirmed_on_parameterized_query():
     assert r["status"] == "not_confirmed"
 
 
+def test_sqli_not_confirmed_on_unrelated_500():
+    """Regression: a bare 500 (e.g. a different bug entirely unlocked by the quote) must not
+    be read as a SQL-injection confirmation on its own — only a real DB error signature counts."""
+    def responder(method, path, value):
+        if "'" in value:
+            return Resp(status=500, body="<html>Internal Server Error</html>")
+        return Resp(status=200, body="ok")
+    r = probe_sqli(MockTarget(responder), "/login", "username", canary())
+    assert r["status"] == "not_confirmed"
+
+
 def test_sqli_not_testable_when_unreachable():
     def responder(method, path, value):
         return Resp(error="ConnectionRefusedError")
@@ -110,6 +121,16 @@ def test_cmdi_confirmed_when_marker_echoed():
 def test_cmdi_not_confirmed_when_sanitized():
     def responder(method, path, value):
         return Resp(status=200, body="host noted (sanitized)")
+    r = probe_command_injection(MockTarget(responder), "/ping", "host", canary())
+    assert r["status"] == "not_confirmed"
+
+
+def test_cmdi_not_confirmed_when_payload_merely_reflected():
+    """Regression: an app that safely echoes the raw input back (e.g. HTML-escaped) will
+    contain the marker too, since it's part of what was sent — that must not look like
+    execution just because the marker string shows up."""
+    def responder(method, path, value):
+        return Resp(status=200, body=f"host noted: {value}")
     r = probe_command_injection(MockTarget(responder), "/ping", "host", canary())
     assert r["status"] == "not_confirmed"
 

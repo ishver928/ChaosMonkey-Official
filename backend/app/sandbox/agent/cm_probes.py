@@ -57,7 +57,9 @@ def probe_sqli(target: HttpTarget, path: str, param: str, canary: Canary, method
         return _result("not_testable", probe_id, detail=f"target unreachable: {r_base.error}")
 
     r_quote = send(quote_value)
-    if r_quote.status == 500 or DB_ERROR_SIGNATURES.search(r_quote.body):
+    # A bare 500 proves nothing by itself (the endpoint could error for any reason); only a
+    # recognizable *database* error signature in the body counts as confirmation.
+    if DB_ERROR_SIGNATURES.search(r_quote.body) and not DB_ERROR_SIGNATURES.search(r_base.body):
         return _result("confirmed", probe_id, evidence=_first_match(DB_ERROR_SIGNATURES, r_quote.body),
                         detail="single-quote caused a DB error signature")
 
@@ -125,7 +127,14 @@ def probe_command_injection(target: HttpTarget, path: str, param: str, canary: C
         resp = send(payload)
         if resp.error:
             continue
-        if marker in resp.body:
+        # The marker alone isn't enough: an app that just reflects the raw input back (safely
+        # or not) would also contain it, since it's part of what we sent. Only count it as
+        # execution if the marker shows up *without* the metacharacter payload that was
+        # supposed to trigger it — i.e. the shell actually split/ran the command. Check both
+        # the raw and HTML-escaped forms, since an escaped-but-still-reflected payload is
+        # still just reflection, not execution.
+        reflected = payload in resp.body or html.escape(payload) in resp.body
+        if marker in resp.body and not reflected:
             return _result("confirmed", probe_id, evidence=f"shell marker echoed back: {marker}",
                             detail=f"payload shape: {payload.replace(marker, '<marker>')}")
     return _result("not_confirmed", probe_id, detail="no echoed marker across tested shell metacharacters")
