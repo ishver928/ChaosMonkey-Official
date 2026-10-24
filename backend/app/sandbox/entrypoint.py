@@ -44,11 +44,10 @@ def detect(files: dict[str, str]) -> EntrypointInfo:
             if m:
                 port_m = FLASK_RUN_RX.search(src)
                 port = int(port_m.group(1)) if port_m and port_m.group(1) else 8080
-                module = path[:-3].replace("/", ".").replace("\\", ".")
-                return EntrypointInfo(ok=True, kind="flask", file=path, port=port,
-                                       run_cmd=["python", "-c",
-                                                 f"import {module} as m; m.{m.group(1)}.run("
-                                                 f"host='0.0.0.0', port={port}, debug=False)"])
+                # Run the file as-is (its own __main__ block) rather than re-synthesizing a
+                # run() call, so the app's actual debug/host/port configuration is exercised —
+                # that configuration is exactly what some probes (e.g. debug-traceback) verify.
+                return EntrypointInfo(ok=True, kind="flask", file=path, port=port, run_cmd=["python", path])
         elif path.endswith(".js"):
             if EXPRESS_APP_RX.search(src):
                 listen_m = EXPRESS_LISTEN_RX.search(src)

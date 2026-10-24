@@ -114,6 +114,8 @@ def run_verification(run_id: str, project_dir: Path, image: str, run_cmd: list[s
         ]
         for k, v in plan.get("env", {}).items():
             app_cmd += ["-e", f"{k}={v}"]
+        if image == RUNNER_NODE_IMAGE:
+            app_cmd += ["-e", "NODE_PATH=/node_modules"]
         app_cmd += [image, *run_cmd]
         r = _run(app_cmd, 20, log)
         if r.returncode != 0:

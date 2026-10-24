@@ -16,7 +16,7 @@ import sys
 import time
 
 from cm_canary import Canary
-from cm_discovery import crawl, routes_from_static_findings
+from cm_discovery import crawl, find_pii_form, routes_from_static_findings, submit_pii_form
 from cm_probes import (
     probe_command_injection, probe_debug_traceback, probe_exposed_secret,
     probe_pii_at_rest, probe_reflected_xss, probe_sqli,
@@ -79,6 +79,13 @@ def run(plan: dict) -> dict:
             param_by_path.setdefault(action, [])
             param_by_path[action].extend(form.fields)
 
+    needs_pii_seed = any(RULE_TO_PROBE.get(f.get("ruleId", "")) == "pii_rest" for f in findings)
+    pii_seeded = False
+    if needs_pii_seed:
+        form_hit = find_pii_form(pages)
+        if form_hit is not None:
+            pii_seeded = submit_pii_form(target, form_hit[0], form_hit[1], canary)
+
     for f in findings:
         rule = f.get("ruleId", "")
         file_path = f.get("file", "")
@@ -92,12 +99,20 @@ def run(plan: dict) -> dict:
             r = probe_exposed_secret(target, all_paths or ["/"], canary)
         elif probe_kind == "pii_rest":
             db_path = plan.get("db_path")
-            r = probe_pii_at_rest(db_path, canary) if db_path else \
-                {"status": "not_testable", "probe_id": "pii-rest", "evidence": "", "detail": "no DB file located"}
+            if not db_path:
+                r = {"status": "not_testable", "probe_id": "pii-rest", "evidence": "", "detail": "no DB file located"}
+            elif not pii_seeded:
+                r = {"status": "not_testable", "probe_id": "pii-rest", "evidence": "",
+                     "detail": "no registration/profile form found to seed canary name+DOB"}
+            else:
+                r = probe_pii_at_rest(db_path, canary)
         elif probe_kind == "debug_config":
-            path = next(iter(param_by_path), "/")
-            params = param_by_path.get(path) or ["x"]
-            r = probe_debug_traceback(target, path, params[0])
+            r = {"status": "not_confirmed", "probe_id": "debug-v1", "evidence": "", "detail": "no probed path yielded a traceback"}
+            for path, params in (param_by_path.items() or [("/", ["x"])]):
+                candidate = probe_debug_traceback(target, path, (params or ["x"])[0])
+                if candidate.get("status") == "confirmed":
+                    r = candidate
+                    break
         elif probe_kind in ("sqli", "xss", "cmdi"):
             target_path = next((p for p in param_by_path if p), None)
             if target_path is None:

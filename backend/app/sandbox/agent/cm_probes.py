@@ -65,7 +65,12 @@ def probe_sqli(target: HttpTarget, path: str, param: str, canary: Canary, method
     r_false = send(bool_false)
     if not r_true.error and not r_false.error:
         true_len, false_len, base_len = len(r_true.body), len(r_false.body), len(r_base.body)
-        if r_true.status == 200 and (r_false.status != 200 or abs(true_len - base_len) < 5 and abs(false_len - base_len) > 40):
+        # Signature: the always-true branch (' OR '1'='1) returns a materially different,
+        # larger body than both the baseline (nonexistent row) and the always-false branch —
+        # i.e. the WHERE clause itself is being altered by the injected quote.
+        false_matches_base = abs(false_len - base_len) < 10 or r_false.status != 200
+        true_diverges = abs(true_len - base_len) > 40 or (r_true.status == 200 and r_false.status != 200)
+        if r_true.status == 200 and false_matches_base and true_diverges:
             return _result("confirmed", probe_id,
                             evidence=f"boolean differential: true-branch len={true_len} false-branch len={false_len}",
                             detail="OR '1'='1' body differs materially from AND '1'='2'")

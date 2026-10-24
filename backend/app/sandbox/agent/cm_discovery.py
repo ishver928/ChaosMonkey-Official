@@ -86,6 +86,47 @@ def crawl(target: HttpTarget, seed_paths: list[str], max_pages: int = 25) -> lis
     return pages
 
 
+_NAME_FIELD = re.compile(r"name|fullname|full_name", re.I)
+_DOB_FIELD = re.compile(r"dob|birth", re.I)
+_USER_FIELD = re.compile(r"user(name)?", re.I)
+_PASS_FIELD = re.compile(r"pass(word)?", re.I)
+
+
+def find_pii_form(pages: list[PageInfo]) -> tuple[PageInfo, FormInfo] | None:
+    """Locate a form that looks like it collects name + date-of-birth (a registration/profile
+    form), so the PII-at-rest probe has something real to have submitted first."""
+    for page in pages:
+        for form in page.forms:
+            has_name = any(_NAME_FIELD.search(f) for f in form.fields)
+            has_dob = any(_DOB_FIELD.search(f) for f in form.fields)
+            if has_name and has_dob:
+                return page, form
+    return None
+
+
+def submit_pii_form(target: HttpTarget, page: PageInfo, form: FormInfo, canary) -> bool:
+    """Submit the canary name/DOB (and username/password if the form asks) to seed the app's
+    storage, so a subsequent on-disk inspection can check for plaintext PII."""
+    values: dict[str, str] = {}
+    for field in form.fields:
+        if _DOB_FIELD.search(field):
+            values[field] = canary.fake_dob
+        elif _NAME_FIELD.search(field):
+            values[field] = canary.fake_name
+        elif _USER_FIELD.search(field):
+            values[field] = canary.fake_username
+        elif _PASS_FIELD.search(field):
+            values[field] = canary.fake_password
+        else:
+            values[field] = "cm_probe"
+    action = clean_path(urljoin(page.path, form.action or page.path))
+    if form.method == "get":
+        resp = target.request("GET", action, query=values)
+    else:
+        resp = target.request("POST", action, form=values)
+    return not resp.error and resp.status < 500
+
+
 def routes_from_static_findings(findings: list[dict]) -> list[str]:
     """Pull plausible route strings out of static-finding snippets (best effort, never fails)."""
     out: set[str] = set()
