@@ -7,7 +7,7 @@ knowledge base, validates it against the real code, scores severity deterministi
 hands you a verified fix.
 
 **Everything runs on your machine.** Analysis uses a self-hosted, deterministic local LLM
-(Ollama) with an offline fallback, so proprietary code never leaves the device. The server
+(Ollama, off by default) with an offline fallback; model calls are restricted to loopback. The server
 binds to `127.0.0.1` and refuses to start if any configured endpoint is non-local.
 
 Built at Cal Hacks 13.0.
@@ -33,7 +33,7 @@ flowchart TD
     UI -. silent fallback .-> WORKER[In-browser Web Worker scanner]
   end
 
-  subgraph Backend["Backend (127.0.0.1:8000) — nothing leaves the machine"]
+  subgraph Backend["Backend (127.0.0.1:8000), loopback-only"]
     API[FastAPI REST + SSE] --> ING[Ingest: code/files/zip/path]
     ING --> DET[Deterministic detectors\nregex + Python AST + JS]
     ING --> CHUNK[Chunk + RAG-ground]
@@ -94,8 +94,9 @@ Full details in [`API.md`](API.md).
 
 ## 90-second demo script (for judges)
 
-1. **Health (5s).** `curl 127.0.0.1:8000/api/health` → `"data_leaves_machine": false`. Nothing
-   leaves the machine; the model, seed, and parameters are attested.
+1. **Health (5s).** `curl 127.0.0.1:8000/api/health` → `"data_leaves_machine": false` and a
+   `local_only` check: the model URL is loopback, proxy env vars are ignored, redirects are not
+   followed. The model, digest, seed and generation options are listed.
 2. **Attack the vulnerable app (20s).**
    `curl -N -X POST "127.0.0.1:8000/api/demo/flask_store/attack?target=vulnerable"`
    → watch **5/5 COMPROMISED**: SQL-injection login bypass, unauth `/admin` data dump, `../`
@@ -113,11 +114,14 @@ One-liner for the whole thing: the **Chaos Mode** toggle (`"chaos_mode": true` o
 injects known-vulnerable snippets into a copy of your code and reports the detection rate — the
 "monkey" shaking your code to prove the checker works.
 
-## How the guarantees are enforced
+## What is enforced, and how
 
-- **No data leaves the machine.** The server binds to loopback, validates that Ollama's URL is
-  localhost, and aborts startup otherwise. `/api/health` exposes `data_leaves_machine: false`.
-  No cloud AI SDKs are imported anywhere.
+- **Loopback-only model calls.** The server binds to loopback and aborts startup if Ollama's URL is
+  not loopback. Every model request goes through `backend/app/llm/client.py`, which re-checks the
+  URL before sending, ignores proxy env vars (`trust_env=False`) and does not follow redirects. A
+  test with a socket-level guard shows a full scan opens no non-loopback connection.
+  `/api/health` exposes `data_leaves_machine` and the `local_only` check. No cloud AI SDKs are
+  imported anywhere.
 - **No raw secrets in output.** Every secret/PII value is masked before it is logged, stored,
   returned, or placed in a report or fix diff; a defense-in-depth `scrub()` catches residuals.
 - **Deterministic.** `temperature=0, top_k=1, top_p=1`, fixed seed, JSON-schema output with

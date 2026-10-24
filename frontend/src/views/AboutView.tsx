@@ -35,7 +35,7 @@ export function AboutView() {
       <div className="grid items-center gap-10 lg:grid-cols-[1.3fr_.7fr]">
         <div>
           <p className="eyebrow">About & privacy</p>
-          <h1 className="mt-1 text-[clamp(38px,5vw,62px)] font-semibold">Your code never leaves your machine.</h1>
+          <h1 className="mt-1 text-[clamp(38px,5vw,62px)] font-semibold">Your code is scanned on your machine.</h1>
           <p className="mt-4 max-w-2xl text-[17px] leading-relaxed">
             ChaosMonkey is a static site. Once the page loads there is nothing to talk to: no backend, no API keys, no cloud AI.
             A security tool that uploads your secrets to find your secrets would be a funny kind of chaos.
@@ -76,7 +76,7 @@ export function AboutView() {
       <section className="mt-16 border-y-2 border-line bg-butter px-6 py-12 md:px-10">
         <div className="grid gap-10 lg:grid-cols-[.8fr_1.2fr]">
           <div>
-            <p className="eyebrow !text-strong">What never leaves this device</p>
+            <p className="eyebrow !text-strong">What stays on this device</p>
             <h2 className="mt-1 text-[38px]">The short list is: everything.</h2>
           </div>
           <ul>

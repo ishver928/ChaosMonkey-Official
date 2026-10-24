@@ -7,7 +7,7 @@ export interface SourceFile {
   content: string
 }
 
-/** A raw detector hit, in absolute character offsets. Never leaves the worker without being masked. */
+/** A raw detector hit, in absolute character offsets. Masked before any finding is posted out of the worker. */
 export interface RawMatch {
   start: number
   end: number
