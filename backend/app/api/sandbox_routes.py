@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from ..models.schemas import SandboxRunRequest
-from ..sandbox import service as sandbox_service
+from ..models.schemas import SandboxAdhocRunRequest, SandboxRunRequest
+from ..sandbox import docker_runner, service as sandbox_service
 from .store import store
 
 router = APIRouter(prefix="/api/sandbox")
@@ -21,6 +21,17 @@ def run_sandbox(req: SandboxRunRequest) -> dict:
     rec = sandbox_service.start_run(
         req.scan_id, session.files, session.record.report.findings, req.finding_ids,
     )
+    return {"sandbox_run_id": rec.id, "status": rec.status}
+
+
+@router.post("/run-adhoc")
+def run_sandbox_adhoc(req: SandboxAdhocRunRequest) -> dict:
+    """For the shipped frontend: it scans entirely client-side (a Web Worker), so it has
+    files/findings in memory but no server-side scan_id. Takes them directly instead."""
+    if not req.files:
+        raise HTTPException(status_code=400, detail="No files provided")
+    scan_id = "adhoc_" + docker_runner.new_run_id()
+    rec = sandbox_service.start_run(scan_id, req.files, req.findings, req.finding_ids)
     return {"sandbox_run_id": rec.id, "status": rec.status}
 
 

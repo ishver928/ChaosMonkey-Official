@@ -174,6 +174,16 @@ class SandboxRunRequest(BaseModel):
     finding_ids: Optional[list[str]] = None  # None = verify every testable finding in the scan
 
 
+class SandboxAdhocRunRequest(BaseModel):
+    """Same as SandboxRunRequest, but for the frontend's in-browser scanner, which never calls
+    POST /api/scan and so has no server-side scan_id — it already has the files and findings
+    in memory (from the Web Worker scan) and hands them over directly."""
+    files: list[SourceFile]
+    findings: list[Finding]
+    finding_ids: Optional[list[str]] = None
+    name: str = "adhoc"
+
+
 class SandboxFindingResult(BaseModel):
     finding_id: str
     ruleId: str = ""
