@@ -89,7 +89,7 @@ def _hardening_flags(read_only_root: bool = True) -> list[str]:
 
 
 def run_verification(run_id: str, project_dir: Path, image: str, run_cmd: list[str],
-                      app_port: int, plan: dict, docker_bin: str) -> SandboxRunResult:
+                      app_port: int, plan: dict, docker_bin: str, gvisor: bool = False) -> SandboxRunResult:
     """Spin up an internal-only network, launch the app container, then the probe-agent
     container on the same network, collect the agent's JSON, and tear everything down."""
     log: list[str] = []
@@ -111,9 +111,12 @@ def run_verification(run_id: str, project_dir: Path, image: str, run_cmd: list[s
         # project mount — the project itself stays read-only the whole time.
         data_dir = Path(tempfile.mkdtemp(prefix="cm_sbx_data_"))
 
+        runtime_flags = ["--runtime", "runsc"] if gvisor else []
+
         app_cmd = [
             docker_bin, "run", "-d", "--rm", "--name", app_name,
             "--network", net_name,
+            *runtime_flags,
             *_hardening_flags(read_only_root=True),
             "-v", f"{ro_copy}:/project:ro",
             "-v", f"{data_dir}:/data:rw",
@@ -142,6 +145,7 @@ def run_verification(run_id: str, project_dir: Path, image: str, run_cmd: list[s
         agent_cmd = [
             docker_bin, "run", "--rm", "--name", agent_name,
             "--network", net_name,
+            *runtime_flags,
             *_hardening_flags(read_only_root=True),
             "-v", f"{AGENT_DIR}:/agent:ro",
             "-v", f"{ro_copy}:/project:ro",

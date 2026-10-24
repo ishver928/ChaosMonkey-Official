@@ -131,6 +131,37 @@ injects randomly chosen known-vulnerable snippets from the KB into a copy of the
 verifies Chaos Monkey catches them, returning a detection rate in
 `report.chaos_mode = { "injected": n, "detected": m, "detection_rate": 0.0-1.0, "details": [...] }`.
 
+## Sandbox verification (additive)
+
+Confirms whether specific static findings are actually exploitable by running the scanned app
+in an isolated Docker sandbox and firing fixed, deterministic probes at it. No LLM involvement.
+Existing endpoints/response shapes are unchanged; a `Finding` gains an optional `verification`
+field once a sandbox run has touched it. See `backend/README.md` for the full threat model.
+
+### `POST /api/sandbox/run`
+```json
+{ "scan_id": "scan_…", "finding_ids": ["…"] }
+```
+`finding_ids` omitted/`null` = verify every testable finding in the scan. Returns
+`{ "sandbox_run_id": "…", "status": "queued" }`. Runs in the background.
+
+### `GET /api/sandbox/{id}`
+```json
+{
+  "id": "…", "scan_id": "scan_…",
+  "status": "queued|running|done|error|docker_unavailable",
+  "docker_available": true, "gvisor": false, "stack_detected": "flask|fastapi|express|unknown",
+  "results": [{ "finding_id": "…", "ruleId": "CM-A001", "file": "app.py",
+    "verification": { "status": "confirmed|not_confirmed|not_testable|skipped",
+                       "probe_id": "sqli-v1", "evidence": "…", "detail": "…",
+                       "sandbox_run_id": "…" } }],
+  "canary_tag": "…", "requests_sent": 0, "error": "", "log": ["…"]
+}
+```
+`not_confirmed` is never "safe" — it only means this probe didn't reproduce the issue. When
+Docker isn't installed/running, `status` is `docker_unavailable` and every requested finding is
+`not_testable` with the reason; the rest of ChaosMonkey is unaffected.
+
 ## Safety guardrails (demo simulator)
 
 - Attacks only ever target the bundled demo apps on `127.0.0.1`; any non-loopback host is

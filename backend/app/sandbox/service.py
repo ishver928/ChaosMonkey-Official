@@ -128,6 +128,7 @@ def _run(run_id: str, scan_id: str, files: list[SourceFile], findings: list[Find
         docker_bin = docker_runner._docker_bin() or "docker"
         run_result = docker_runner.run_verification(
             run_id, project_dir, image, entry.run_cmd or [], entry.port, plan, docker_bin,
+            gvisor=avail.gvisor,
         )
 
     rec.log = run_result.log[-40:]
