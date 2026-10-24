@@ -17,6 +17,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from ..detectors.masking import scrub
 from ..models.schemas import Finding, SourceFile
 from .detect import run_detectors_on_file
 
@@ -141,7 +142,13 @@ def generate_fix(finding: Finding, sf: SourceFile, project: list[SourceFile]) ->
         sf.content.split("\n"), new_content.split("\n"),
         fromfile=f"a/{sf.path}", tofile=f"b/{sf.path}", lineterm="",
     ))
-    finding.fix_diff = diff
+    # Privacy: never expose the raw secret in the displayed diff. Replace the sensitive
+    # token with its masked form, then scrub any residual live-format credentials.
+    if finding.sensitive and finding.end > finding.start:
+        raw_token = sf.content[finding.start:finding.end]
+        if raw_token and finding.maskedValue:
+            diff = diff.replace(raw_token, finding.maskedValue)
+    finding.fix_diff = scrub(diff)
     if not finding.suggested_fix:
         finding.suggested_fix = replacement.strip()
 

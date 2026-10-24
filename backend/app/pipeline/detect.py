@@ -98,6 +98,7 @@ def run_detectors_on_file(sf: SourceFile, project: list[SourceFile], enabled: se
             file=sf.path,
             language=lang,
             line=line, column=column, endLine=end_line, endColumn=end_column,
+            start=m.start, end=m.end,
             sensitive=m.sensitive,
             maskedValue=masked,
             snippet=masked_snippet,
@@ -106,7 +107,7 @@ def run_detectors_on_file(sf: SourceFile, project: list[SourceFile], enabled: se
             name=m.name,
             cwe_id=cwe,
             title=title,
-            evidence_snippet=snippet_line.strip(),
+            evidence_snippet=masked_snippet,
             source="detector",
             validation=ValidationTrace(
                 evidence_in_source=True,

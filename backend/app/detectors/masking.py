@@ -68,7 +68,7 @@ _LAST_RESORT = [
     re.compile(r"\bgithub_pat_[A-Za-z0-9_]{50,}"),
     re.compile(r"\b(?:sk|rk)_live_[0-9a-zA-Z]{16,}"),
     re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"),
-    re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_\-]{32,}"),
+    re.compile(r"\bsk-(?:ant-|proj-|svcacct-|fake-)?[A-Za-z0-9_\-]{16,}"),
     re.compile(r"\bAIza[0-9A-Za-z_\-]{35}"),
     re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}"),
     re.compile(r"eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"),

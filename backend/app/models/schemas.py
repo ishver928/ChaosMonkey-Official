@@ -49,6 +49,9 @@ class Finding(BaseModel):
     column: int = 1
     endLine: int = 1
     endColumn: int = 1
+    # Absolute character offsets into the in-memory file (frontend viewer uses these).
+    start: int = 0
+    end: int = 0
     sensitive: bool = False
     maskedValue: str = ""
     snippet: str = ""
