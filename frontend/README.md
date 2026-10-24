@@ -1,6 +1,6 @@
 # ChaosMonkey
 
-**Shake the code before it ships.** ChaosMonkey finds exposed API keys, personal data and unsafe storage in AI-generated code, explains why each one is dangerous, and hands you a before/after fix. It runs entirely in your browser: your code never leaves your machine.
+**Shake the code before it ships.** ChaosMonkey finds exposed API keys, personal data and unsafe storage in AI-generated code, explains why each one is dangerous, and hands you a before/after fix. It runs entirely in your browser; an offline guard blocks requests to any host other than this origin and the local Ollama.
 
 Built for Cal Hacks 13.0.
 
@@ -54,9 +54,9 @@ Then open **Settings → Local model (Ollama)**, switch it on, and pick the mode
 
 If you serve the app from a non-default origin and Ollama rejects requests, allow it with `OLLAMA_ORIGINS=http://127.0.0.1:5173 ollama serve`.
 
-## How we guarantee local-only
+## How local-only is enforced
 
-- **Offline guard** (`src/lib/offlineGuard.ts`), imported first in `main.tsx`. It wraps `fetch`, `XMLHttpRequest`, `navigator.sendBeacon`, `WebSocket` and `EventSource`, and blocks any request whose host isn't this origin, `localhost` or `127.0.0.1`. Blocked attempts are logged with `console.warn` and counted. The count is shown live in the header ("Local only · nothing leaves this device · 0 blocked") and on the About page. That page also has a **Try to phone home** button that proves the guard works by sending to a reserved `.invalid` hostname.
+- **Offline guard** (`src/lib/offlineGuard.ts`), imported first in `main.tsx`. It wraps `fetch`, `XMLHttpRequest`, `navigator.sendBeacon`, `WebSocket` and `EventSource`, and blocks any request whose host isn't this origin, `localhost` or `127.0.0.1`. Blocked attempts are logged with `console.warn` and counted. The count is shown live in the header ("Local only · non-local requests blocked · 0 blocked") and on the About page. That page also has a **Try to phone home** button that proves the guard works by sending to a reserved `.invalid` hostname.
 - **Content-Security-Policy:** a small Vite plugin injects a strict CSP meta tag into production builds (`default-src 'self'`; `connect-src` limited to `'self'` and the local Ollama port; no frames, objects or external scripts). Dev mode skips it because React Refresh needs inline scripts.
 - **No external assets:** fonts are self-hosted via `@fontsource` (Fredoka, Nunito, IBM Plex Mono), icons come from the bundled `lucide-react`, and images live in `public/`. No CDNs, analytics, telemetry or error reporters.
 - **Masked storage:** only settings, rule toggles, dismissed-finding fingerprints and scan history are persisted, in `localStorage`. History holds names, counts and **masked** snippets, never file contents. Every write also passes through a scrubber that blanks anything still shaped like a credential, and exports (Markdown/JSON/HTML) go through the same scrubber. "Reveal" holds a raw value in memory for 20 seconds and never persists it.

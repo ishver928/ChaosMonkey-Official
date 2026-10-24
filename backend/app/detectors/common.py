@@ -32,6 +32,36 @@ def shannon_entropy(value: str) -> float:
     return h
 
 
+_TEMPLATE = re.compile(
+    r"x{4,}|your[_\- ]?|changeme|change[_\- ]me|replace[_\- ]?me|placeholder|dummy|redacted"
+    r"|insert[_\- ]|<[^>]*>|\$\{|\{\{|\.\.\.",
+    re.I,
+)
+
+
+def is_template_placeholder(value: str) -> bool:
+    """Obvious template values (YOUR_KEY, xxxx, <token>, ${X}, changeme) inside a known key format.
+
+    Unlike ``is_placeholder`` this does not treat the word "example" as a placeholder:
+    vendors publish structurally valid example keys (AWS AKIAIOSFODNN7EXAMPLE) which the
+    bundled demo intentionally uses, and a structurally valid provider key is worth a look.
+    """
+    body = re.sub(r"^[A-Za-z]+[_-](?:live_|proj-|svcacct-|ant-)?", "", value)
+    if len(set(body.lower())) <= 2:
+        return True
+    return bool(_TEMPLATE.search(value))
+
+
+def is_env_var_name(value: str) -> bool:
+    """A value that is itself an environment-variable name, e.g. "GITHUB_TOKEN"."""
+    return bool(re.fullmatch(r"[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+", value))
+
+
+def is_word_identifier(value: str) -> bool:
+    """snake/kebab-case lowercase words such as "token_expired" or "password-input"."""
+    return bool(re.fullmatch(r"[a-z]+(?:[_\-.][a-z]+)+", value))
+
+
 def is_placeholder(value: str) -> bool:
     v = value.strip()
     if len(v) < 4:

@@ -1,10 +1,14 @@
 import type { SkippedFile, SourceFile } from './types'
 import { detectLanguage } from './language'
+import { isTestOrGeneratedPath, looksMinified } from './paths'
 
 export const MAX_BYTES = 1024 * 1024
 const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'out', '.next', '.nuxt', '.svelte-kit', 'coverage', '__pycache__', '.venv', 'venv', '.turbo', '.cache', 'target', 'vendor'])
 
 export interface IntakeResult { files: SourceFile[]; skipped: SkippedFile[] }
+
+/** Scan tests/fixtures/vendor/minified/lock files too. Off by default to cut false positives. */
+export const intakeOptions = { includeTestPaths: false }
 
 function inIgnoredDir(path: string): boolean {
   return path.split(/[\\/]/).slice(0, -1).some((seg) => IGNORED_DIRS.has(seg))
@@ -16,10 +20,12 @@ function looksBinary(text: string): boolean {
 
 async function accept(file: File, path: string, out: IntakeResult): Promise<void> {
   if (inIgnoredDir(path)) return void out.skipped.push({ path, reason: 'ignored-dir' })
+  if (!intakeOptions.includeTestPaths && isTestOrGeneratedPath(path)) return void out.skipped.push({ path, reason: 'test-or-generated' })
   if (!detectLanguage(path)) return void out.skipped.push({ path, reason: 'unsupported' })
   if (file.size > MAX_BYTES) return void out.skipped.push({ path, reason: 'too-large' })
   const content = await file.text()
   if (looksBinary(content)) return void out.skipped.push({ path, reason: 'binary' })
+  if (!intakeOptions.includeTestPaths && looksMinified(content)) return void out.skipped.push({ path, reason: 'test-or-generated' })
   out.files.push({ path, content: content.replace(/\r\n/g, '\n') })
 }
 

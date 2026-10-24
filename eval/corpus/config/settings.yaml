@@ -1,0 +1,4 @@
+database:
+  password: Pr0d-Db-Pass-2026  # expect: CM-S014
+  host: db.internal
+api_token: ${API_TOKEN}

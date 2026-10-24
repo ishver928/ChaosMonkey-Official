@@ -12,6 +12,7 @@ from pathlib import Path
 
 from ..config import settings
 from ..detectors.common import detect_language
+from ..detectors.paths import is_test_or_generated_path, looks_minified
 from ..models.schemas import SkippedFile, SourceFile
 
 SKIP_DIRS = {
@@ -36,15 +37,24 @@ def _skipped_dir(path: str) -> bool:
     return any(p in SKIP_DIRS for p in parts)
 
 
+def _include_tests_default() -> bool:
+    import os
+    return os.environ.get("SCAN_INCLUDE_TEST_PATHS", "0") == "1"
+
+
 class Ingested:
-    def __init__(self) -> None:
+    def __init__(self, include_test_paths: bool | None = None) -> None:
         self.files: list[SourceFile] = []
         self.skipped: list[SkippedFile] = []
+        self.include_test_paths = _include_tests_default() if include_test_paths is None else include_test_paths
 
     def add_raw(self, path: str, data: bytes) -> None:
         norm = path.replace("\\", "/").lstrip("/")
         if _skipped_dir(norm):
             self.skipped.append(SkippedFile(path=norm, reason="ignored-dir"))
+            return
+        if not self.include_test_paths and is_test_or_generated_path(norm):
+            self.skipped.append(SkippedFile(path=norm, reason="test-or-generated"))
             return
         if Path(norm).suffix.lower() in SKIP_SUFFIXES:
             self.skipped.append(SkippedFile(path=norm, reason="unsupported"))
@@ -60,28 +70,31 @@ class Ingested:
         except UnicodeDecodeError:
             self.skipped.append(SkippedFile(path=norm, reason="binary"))
             return
+        if not self.include_test_paths and looks_minified(content):
+            self.skipped.append(SkippedFile(path=norm, reason="test-or-generated"))
+            return
         self.files.append(SourceFile(path=norm, content=content))
 
     def add_text(self, path: str, content: str) -> None:
         self.add_raw(path, content.encode("utf-8"))
 
 
-def ingest_code(code: str, filename: str | None = None) -> Ingested:
-    ing = Ingested()
+def ingest_code(code: str, filename: str | None = None, include_test_paths: bool | None = None) -> Ingested:
+    ing = Ingested(include_test_paths)
     name = filename or "snippet.txt"
     ing.add_text(name, code)
     return ing
 
 
-def ingest_files(files: list[SourceFile]) -> Ingested:
-    ing = Ingested()
+def ingest_files(files: list[SourceFile], include_test_paths: bool | None = None) -> Ingested:
+    ing = Ingested(include_test_paths)
     for f in files:
         ing.add_text(f.path, f.content)
     return ing
 
 
-def ingest_zip(data: bytes) -> Ingested:
-    ing = Ingested()
+def ingest_zip(data: bytes, include_test_paths: bool | None = None) -> Ingested:
+    ing = Ingested(include_test_paths)
     try:
         with zipfile.ZipFile(io.BytesIO(data)) as zf:
             for info in zf.infolist():
@@ -94,8 +107,8 @@ def ingest_zip(data: bytes) -> Ingested:
     return ing
 
 
-def ingest_path(path: str) -> Ingested:
-    ing = Ingested()
+def ingest_path(path: str, include_test_paths: bool | None = None) -> Ingested:
+    ing = Ingested(include_test_paths)
     base = Path(path).expanduser().resolve()
     if base.is_file():
         ing.add_raw(base.name, base.read_bytes())

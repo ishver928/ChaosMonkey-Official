@@ -17,7 +17,10 @@ from .common import (
     RawMatch,
     is_env_file,
     is_env_template,
+    is_env_var_name,
     is_placeholder,
+    is_template_placeholder,
+    is_word_identifier,
     line_at,
     shannon_entropy,
 )
@@ -87,37 +90,41 @@ def _rx(rule_id: str, content: str, pattern: re.Pattern[str], group: int = 0,
 # Secret detectors (CM-S0xx)
 # ---------------------------------------------------------------------------
 
+def _not_template(v, _m):
+    return not is_template_placeholder(v)
+
+
 def _s001(ctx):
-    return _rx("CM-S001", ctx.content, re.compile(r"\b((?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16})\b"), 1, confidence=0.95)
+    return _rx("CM-S001", ctx.content, re.compile(r"\b((?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16})\b"), 1, confidence=0.95, filt=_not_template)
 
 def _s002(ctx):
-    return _rx("CM-S002", ctx.content, re.compile(r"(aws[\w.\-]{0,30}?secret[\w\-]*)[\"']?\s*[:=]\s*[\"']?([A-Za-z0-9/+=]{40})(?![A-Za-z0-9/+=])", re.I), 2, name_group=1, confidence=0.92)
+    return _rx("CM-S002", ctx.content, re.compile(r"(aws[\w.\-]{0,30}?secret[\w\-]*)[\"']?\s*[:=]\s*[\"']?([A-Za-z0-9/+=]{40})(?![A-Za-z0-9/+=])", re.I), 2, name_group=1, confidence=0.92, filt=_not_template)
 
 def _s003(ctx):
-    return _rx("CM-S003", ctx.content, re.compile(r"\b((?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50,})\b"), 1, confidence=0.97)
+    return _rx("CM-S003", ctx.content, re.compile(r"\b((?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50,})\b"), 1, confidence=0.97, filt=_not_template)
 
 def _s004(ctx):
-    return _rx("CM-S004", ctx.content, re.compile(r"\b((?:sk|rk)_live_[0-9a-zA-Z]{16,})\b"), 1, confidence=0.97)
+    return _rx("CM-S004", ctx.content, re.compile(r"\b((?:sk|rk)_live_[0-9a-zA-Z]{16,})\b"), 1, confidence=0.97, filt=_not_template)
 
 def _s005(ctx):
     def f(v, _m):
-        return len(v) >= 24 and bool(re.search(r"\d", v)) and bool(re.search(r"[A-Za-z]", v[3:]))
+        return len(v) >= 24 and bool(re.search(r"\d", v)) and bool(re.search(r"[A-Za-z]", v[3:])) and not is_template_placeholder(v)
     return _rx("CM-S005", ctx.content, re.compile(r"(?<![\w-])(sk-(?!ant-)(?:proj-|svcacct-)?[A-Za-z0-9_\-]{20,})"), 1, confidence=0.85, filt=f)
 
 def _s006(ctx):
-    return _rx("CM-S006", ctx.content, re.compile(r"(?<![\w-])(sk-ant-[A-Za-z0-9_\-]{20,})"), 1, confidence=0.96)
+    return _rx("CM-S006", ctx.content, re.compile(r"(?<![\w-])(sk-ant-[A-Za-z0-9_\-]{20,})"), 1, confidence=0.96, filt=_not_template)
 
 def _s007(ctx):
-    return _rx("CM-S007", ctx.content, re.compile(r"\b(AIza[0-9A-Za-z_\-]{35})(?![0-9A-Za-z_\-])"), 1, confidence=0.93)
+    return _rx("CM-S007", ctx.content, re.compile(r"\b(AIza[0-9A-Za-z_\-]{35})(?![0-9A-Za-z_\-])"), 1, confidence=0.93, filt=_not_template)
 
 def _s008(ctx):
-    return _rx("CM-S008", ctx.content, re.compile(r"\b(xox[abposr]-[A-Za-z0-9-]{10,})"), 1, confidence=0.92)
+    return _rx("CM-S008", ctx.content, re.compile(r"\b(xox[abposr]-[A-Za-z0-9-]{10,})"), 1, confidence=0.92, filt=_not_template)
 
 def _s009(ctx):
     return _rx("CM-S009", ctx.content, re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----[\s\S]*?-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----"), 0, confidence=0.99)
 
 def _s010(ctx):
-    return _rx("CM-S010", ctx.content, re.compile(r"\b(eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})"), 1, confidence=0.88)
+    return _rx("CM-S010", ctx.content, re.compile(r"\b(eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})"), 1, confidence=0.88, filt=_not_template)
 
 def _s011(ctx):
     def f(v, _m):
@@ -155,6 +162,9 @@ def _s014(ctx):
             return
         if re.match(r"^(?:https?:)?//", value) or re.match(r"^[./]", value):
             return
+        # Values that are env-var names or plain word identifiers are not secrets.
+        if is_env_var_name(value) or is_word_identifier(value):
+            return
         is_pw = bool(PASSWORD_NAME.search(name))
         h = shannon_entropy(value)
         if is_pw:
@@ -164,6 +174,9 @@ def _s014(ctx):
             note = "hardcoded password"
         else:
             if len(value) < 12 or h < 3.2:
+                return
+            # Random secrets mix letters and digits; long ones are high-entropy anyway.
+            if not (re.search(r"\d", value) and re.search(r"[A-Za-z]", value)) and not (len(value) >= 32 and h >= 4.0):
                 return
             conf = max(0.45, min(0.92, (h - 3) / 1.6))
             note = f"entropy {h:.2f} bits/char"
@@ -210,7 +223,21 @@ def _p004(ctx):
 def _p005(ctx):
     return _rx("CM-P005", ctx.content, re.compile(r"\b(dob|date_?of_?birth|birth_?date|birthday|dateOfBirth)[\"']?\s*[:=]\s*[\"']?(\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4})", re.I), 2, name_group=1, confidence=0.8)
 
-_PII_WORDS = re.compile(r"\b(users?|customers?|patients?|members?|email|e_?mail|ssn|social_?security|password|passwd|dob|birth\w*|phone\w*|card\w*|credit\w*|req\.body|request\.(?:body|json|form)|profile|account|address)\b", re.I)
+_PII_WORDS = re.compile(r"\b(users?|customers?|patients?|members?|email|e_?mail|ssn|social_?security|password|passwd|dob|birth\w*|date_?of_?birth|full_?name|first_?name|last_?name|phone\w*|card\w*|credit\w*|req\.body|request\.(?:body|json|form)|profile|account|address)\b", re.I)
+
+def code_parts(expr: str) -> str:
+    """Code parts of an expression: string-literal contents dropped, ${...}/f-string {...} kept.
+
+    Mirrors ``codeParts`` in frontend/src/lib/rules.ts.
+    """
+    interpolations: list[str] = []
+    for m in re.finditer(r"\$\{([^}]*)\}", expr):
+        interpolations.append(m.group(1))
+    for m in re.finditer(r"\bf([\"'])((?:\\.|(?!\1).)*)\1", expr):
+        interpolations.extend(re.findall(r"\{([^}]*)\}", m.group(2)))
+    stripped = re.sub(r"([\"'`])(?:\\.|(?!\1).)*\1", " ", expr)
+    return f"{stripped} {' '.join(interpolations)}"
+
 
 def _p006(ctx):
     if ctx.language not in CODE_LANGS:
@@ -221,7 +248,7 @@ def _p006(ctx):
     for ln in ctx.content.split("\n"):
         for m in re_log.finditer(ln):
             args = ln[m.end():]
-            w = _PII_WORDS.search(args)
+            w = _PII_WORDS.search(code_parts(args))
             if not w:
                 continue
             out.append(RawMatch("CM-P006", offset + m.start(), offset + len(ln.rstrip()), False, 0.75, note=f"logs `{w.group(0)}`"))
@@ -238,6 +265,11 @@ def _p007(ctx):
 # Unsafe-storage detectors (CM-D0xx)
 # ---------------------------------------------------------------------------
 
+_STORAGE_KEY = re.compile(r"(token|jwt|auth|session|sess|password|passwd|pwd|secret|ssn|card|credit|api[_-]?key|apikey|refresh|bearer|cred|user(?![a-z])|user_?(?:data|info|profile|obj)|current_?user|profile|e_?mail|dob|birth|phone|address)", re.I)
+# Value side of setItem("k", value): only clearly sensitive expressions.
+_STORAGE_VALUE = re.compile(r"\b(?:\w*token|jwt|password|passwd|ssn|dob|date_?of_?birth|email|user(?:Data|Info|Profile)?|currentUser|profile)\b", re.I)
+
+
 def _d001(ctx):
     if ctx.language not in CODE_LANGS:
         return []
@@ -245,9 +277,11 @@ def _d001(ctx):
     re_st = re.compile(r"\b(localStorage|sessionStorage)\s*(?:\.setItem\(\s*[\"'`]([^\"'`]+)[\"'`]|\.([A-Za-z_]\w*)\s*=(?!=)|\[\s*[\"'`]([^\"'`]+)[\"'`]\s*\]\s*=(?!=))")
     for m in re_st.finditer(ctx.content):
         key = m.group(2) or m.group(3) or m.group(4) or ""
-        if not re.search(r"(token|jwt|auth|session|sess|password|passwd|pwd|secret|ssn|card|credit|api[_-]?key|apikey|refresh|bearer|cred|user|profile)", key, re.I):
-            continue
         nl = ctx.content.find("\n", m.start())
+        paren = ctx.content.find("(", m.start(), m.end())
+        rest = ctx.content[m.end(): call_end(ctx.content, paren)] if paren >= 0 else ""
+        if not (_STORAGE_KEY.search(key) or (m.group(2) and _STORAGE_VALUE.search(rest))):
+            continue
         out.append(RawMatch("CM-D001", m.start(), len(ctx.content) if nl < 0 else nl, False, 0.85, name=key, note=f'key "{key}"'))
     return out
 
@@ -284,7 +318,7 @@ def _d004(ctx):
     if ctx.language not in CODE_LANGS:
         return []
     out = []
-    out += _rx("CM-D004", ctx.content, re.compile(r"\bjwt\.(?:sign|verify)\([^,\n]+,\s*([\"'`])([^\"'`\n]{4,})\1"), 2, confidence=0.9)
+    out += _rx("CM-D004", ctx.content, re.compile(r"\bjwt\.(?:sign|verify|encode|decode)\([^,\n]+,\s*([\"'`])([^\"'`\n]{4,})\1"), 2, confidence=0.9)
     out += _rx("CM-D004", ctx.content, re.compile(r"\b(jwt[_-]?secret|session[_-]?secret|cookie[_-]?secret|SECRET_KEY|secretOrKey|signing[_-]?secret|secret_key)[\"'\]]?\s*[:=]\s*([\"'`])([^\"'`\n]{4,})\2", re.I), 3, name_group=1, confidence=0.88)
     out += _rx("CM-D004", ctx.content, re.compile(r"\bsession\(\s*\{[^}]*?\bsecret\s*:\s*([\"'`])([^\"'`\n]+)\1"), 2, confidence=0.9)
     return [h for h in out if "${" not in ctx.content[h.start:h.end]]
@@ -297,8 +331,7 @@ def _d005(ctx):
     re_set = re.compile(r"\b(?:res|response|ctx|reply)\.(?:cookie|setCookie)\s*\(") if js else re.compile(r"\.set_cookie\s*\(")
     for m in re_set.finditer(ctx.content):
         start = m.start()
-        close = ctx.content.find(");" if js else ")\n", start)
-        end = min(len(ctx.content), start + 300) if close < 0 else close + 1
+        end = call_end(ctx.content, m.end() - 1)
         call = ctx.content[start:end]
         missing = []
         if not re.search(r"httpOnly\s*:\s*true" if js else r"httponly\s*=\s*True", call, re.I):
@@ -316,6 +349,32 @@ def _d005(ctx):
             out.append(h)
     return out
 
+def call_end(content: str, open_paren: int, limit: int = 600) -> int:
+    """Offset just past the ``)`` matching ``content[open_paren]`` (string-aware, bounded)."""
+    depth = 0
+    quote = ""
+    i = open_paren
+    stop = min(len(content), open_paren + limit)
+    while i < stop:
+        ch = content[i]
+        if quote:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == quote:
+                quote = ""
+        elif ch in "\"'`":
+            quote = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return stop
+
+
 def _d006(ctx):
     if ctx.language not in CODE_LANGS:
         return []
@@ -326,7 +385,7 @@ def _d006(ctx):
         for m in re_w.finditer(ln):
             if re.match(r"^(res|response|reply|process\.stdout|sys\.stdout)\.write$", m.group(1)):
                 continue
-            args = ln[m.end():]
+            args = code_parts(ln[m.end():])
             hit = re.search(r"\b(passwords?|passwd|secrets?|tokens?|api_?key|apiKey|ssn|credit\w*|card\w*|users?|customers?|patients?|emails?)\b", args, re.I)
             if not hit:
                 continue
@@ -335,7 +394,7 @@ def _d006(ctx):
     return out
 
 def _d007(ctx):
-    return _rx("CM-D007", ctx.content, re.compile(r"rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED[\"']?\]?\s*[=:]\s*[\"']?0|\bverify\s*=\s*False\b|InsecureSkipVerify\s*:\s*true|ssl\._create_unverified_context|strictSSL\s*:\s*false|\bcurl\b[^\n]*\s(?:-k|--insecure)\b"), 0, sensitive=False, confidence=0.9)
+    return _rx("CM-D007", ctx.content, re.compile(r"rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED[\"']?\]?\s*[=:]\s*[\"']?0|\bverify\s*=\s*False\b|InsecureSkipVerify\s*:\s*true|ssl\._create_unverified_context|\bCERT_NONE\b|\.check_hostname\s*=\s*False\b|strictSSL\s*:\s*false|\bcurl\b[^\n]*\s(?:-k|--insecure)\b"), 0, sensitive=False, confidence=0.9)
 
 
 from .common import base_name  # noqa: E402
