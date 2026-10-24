@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .api.routes import router as api_router
+from .api.sandbox_routes import router as sandbox_router
 from .config import settings
 from .demo.routes import router as demo_router
 
@@ -67,3 +68,4 @@ def root() -> dict:
 
 app.include_router(api_router)
 app.include_router(demo_router)
+app.include_router(sandbox_router)
