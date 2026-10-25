@@ -135,3 +135,11 @@ def test_root_still_json_for_api_clients(client):
 def test_health_privacy_unchanged(client):
     h = client.get("/api/health").json()
     assert h["data_leaves_machine"] is False and h["privacy_ok"] is True
+
+
+def test_scan_ignores_plugin_state_folder(project):
+    from app.pipeline.ingest import ingest_path
+    (project / ".chaosmonkey" / "backups" / "t").mkdir(parents=True)
+    (project / ".chaosmonkey" / "backups" / "t" / "app.py").write_text("x = 1\n", encoding="utf-8")
+    ing = ingest_path(str(project))
+    assert [f.path for f in ing.files] == ["app.py"]
