@@ -55,7 +55,7 @@ export interface BackendReport {
   security_score: number
   counts_by_severity: Record<string, number>
   executive_summary: string
-  privacy?: { data_leaves_machine: boolean; llm_mock: boolean; model: string; seed: number; temperature: number } | null
+  privacy?: { data_leaves_machine: boolean; llm_mock: boolean; ai_enabled?: boolean; model: string; seed: number; temperature: number } | null
 }
 
 export interface BackendScan {
@@ -207,9 +207,9 @@ export function usePluginConnection(): PluginProject | null | undefined {
 }
 
 export const MODE_LABEL: Record<AnalysisMode, { label: string; detail: string }> = {
-  full: { label: 'Full: local LLM', detail: 'Local Ollama model + CWE knowledge base + deterministic detectors.' },
-  mock: { label: 'Mock LLM', detail: 'Recorded local-model responses + CWE knowledge base + detectors. No live model.' },
-  'detector-only': { label: 'Detector-only', detail: 'Ollama is not available, so only deterministic detectors + CWE grounding ran.' },
+  full: { label: 'Full: local AI on', detail: 'Deterministic detectors + CWE knowledge base, plus explanations from your local Ollama model.' },
+  mock: { label: 'Mock AI', detail: 'Deterministic detectors + CWE knowledge base, plus a deterministic stub instead of a live model.' },
+  'detector-only': { label: 'Detector-only', detail: 'Local AI is off or unavailable, so deterministic detectors + CWE grounding ran without a model.' },
 }
 
 export function basename(p: string): string {

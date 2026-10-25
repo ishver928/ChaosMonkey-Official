@@ -174,7 +174,10 @@ export function BackendReportView({ scanId, project }: { scanId: string; project
     return <div className="mx-auto max-w-[1240px] px-[4vw] py-24"><EmptyState title="The scan failed." body="Check the ChaosMonkey server log, then ask Claude to scan again." /></div>
   }
 
-  const mode = report.privacy?.llm_mock ? MODE_LABEL.mock : (project ? MODE_LABEL[project.mode] : null)
+  // The mode this scan actually ran in, from its own privacy attestation.
+  const mode = report.privacy
+    ? (report.privacy.ai_enabled ? (report.privacy.llm_mock ? MODE_LABEL.mock : MODE_LABEL.full) : MODE_LABEL['detector-only'])
+    : (project ? MODE_LABEL[project.mode] : null)
 
   return (
     <div className="mx-auto max-w-[1240px] px-[4vw] pb-10 pt-12">

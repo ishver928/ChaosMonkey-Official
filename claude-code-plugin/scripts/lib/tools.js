@@ -49,8 +49,9 @@ function createTools({ client, open = openBrowser, ensure = ensureBackend, now =
 
   async function backendReady() {
     const { health, started } = await ensure(client)
+    let info
     try {
-      await client.get('/api/plugin/project')
+      info = await client.get('/api/plugin/project')
     } catch (err) {
       if (err && err.status === 404) {
         throw new Error(`An older ChaosMonkey backend without plugin support is running at ${client.base}. Stop it and try again (the plugin will start the current one).`)
@@ -58,7 +59,7 @@ function createTools({ client, open = openBrowser, ensure = ensureBackend, now =
       throw err
     }
     const served = await uiServed(client)
-    return { health, started, served }
+    return { health, started, served, mode: (info && info.mode) || health.mode }
   }
 
   function summaryText(data, projectRoot, shown) {
@@ -121,13 +122,13 @@ function createTools({ client, open = openBrowser, ensure = ensureBackend, now =
     async chaosmonkey_enable({ project_path }) {
       const root = resolveProject(project_path)
       project.enable(root)
-      const { health, started, served } = await backendReady()
+      const { started, served, mode } = await backendReady()
       await client.post('/api/plugin/connect', { project_path: root })
       const shown = served ? await showInUi('/connected') : null
       const fp = project.fingerprint(root)
       const lines = [
         `ChaosMonkey is enabled for ${root} (marker: .chaosmonkey/enabled).`,
-        `Backend: ${started ? 'started' : 'reused'} at ${client.base}. Analysis mode: ${modeLabel(health.mode)}.`,
+        `Backend: ${started ? 'started' : 'reused'} at ${client.base}. Analysis mode: ${modeLabel(mode)}.`,
         'Privacy: local only (data_leaves_machine=false, privacy_ok=true).',
       ]
       if (shown) lines.push(`UI: ${shown.url} (${shown.how}).`)

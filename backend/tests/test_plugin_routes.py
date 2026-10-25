@@ -143,3 +143,20 @@ def test_scan_ignores_plugin_state_folder(project):
     (project / ".chaosmonkey" / "backups" / "t" / "app.py").write_text("x = 1\n", encoding="utf-8")
     ing = ingest_path(str(project))
     assert [f.path for f in ing.files] == ["app.py"]
+
+
+def test_mode_reflects_local_ai_switch_not_ollama_reachability(client, project, monkeypatch):
+    from app.llm import client as llm
+    # AI off (the default): detector-only, even in mock mode, because no model output is used.
+    monkeypatch.setattr(llm.ai_state(), "enabled", False)
+    assert client.get("/api/plugin/project").json()["mode"] == "detector-only"
+    client.post("/api/plugin/connect", json={"project_path": str(project)}, headers=HDR)
+    sid = client.post("/api/scan", json={"path": str(project), "name": "p"}).json()["scan_id"]
+    client.post("/api/plugin/link", json={"scan_id": sid, "project_path": str(project)}, headers=HDR)
+    _wait(sid)
+    s = client.get(f"/api/plugin/scan/{sid}/summary").json()
+    assert s["mode"] == "detector-only" and s["summary"]["ai_enabled"] is False
+    # AI switched on with a pinned model under LLM_MOCK=1: mock.
+    monkeypatch.setattr(llm.ai_state(), "enabled", True)
+    monkeypatch.setattr(llm.ai_state(), "pin", llm.pin_model())
+    assert client.get("/api/plugin/project").json()["mode"] == "mock"

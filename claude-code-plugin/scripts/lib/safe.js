@@ -8,9 +8,9 @@
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info']
 const MODES = {
-  full: 'full (local Ollama model + CWE knowledge base + detectors)',
-  mock: 'mock (recorded local-model responses + CWE knowledge base + detectors; no live LLM)',
-  'detector-only': 'detector-only (Ollama not available; deterministic detectors + CWE knowledge base)',
+  full: 'full (deterministic detectors + CWE knowledge base, plus local Ollama model explanations)',
+  mock: 'mock (deterministic detectors + CWE knowledge base, plus a deterministic stub instead of a live model)',
+  'detector-only': 'detector-only (local AI is off or unavailable; deterministic detectors + CWE knowledge base)',
 }
 
 const LAST_RESORT = [

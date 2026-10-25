@@ -33,7 +33,8 @@ from ..detectors.masking import scrub
 from ..detectors.python_ast import AST_RULES
 from ..detectors.rules import RULE_BY_ID
 from ..kb.store import get_kb
-from ..llm.client import check_status
+from ..config import settings
+from ..llm import client as llm
 from ..models.schemas import ScanReport
 from .store import store
 
@@ -136,21 +137,27 @@ class HeartbeatBody(BaseModel):
 
 # --------------------------------------------------------------------------- helpers
 
-_MODE_TTL_S = 15.0
-_mode_cache: dict = {"at": 0.0, "value": None}
+def _mode_name(ai_enabled: bool, llm_mock: bool) -> str:
+    if not ai_enabled:
+        return "detector-only"
+    return "mock" if llm_mock else "full"
 
 
 def analysis_mode() -> dict:
-    """Which analysis mode the pipeline is in right now (same rule as /api/health). Cached briefly:
-    probing an absent Ollama costs a 2 s timeout, and the UI/MCP server poll these routes."""
-    now = time.time()
-    if _mode_cache["value"] is not None and now - _mode_cache["at"] < _MODE_TTL_S:
-        return dict(_mode_cache["value"])
-    llm = check_status()
-    mode = "full" if llm.available and llm.mode == "ollama" else ("mock" if llm.mode == "mock" else "detector-only")
-    value = {"mode": mode, "llm_mode": llm.mode, "model": llm.model}
-    _mode_cache.update(at=now, value=value)
-    return dict(value)
+    """Which analysis mode new scans run in: the local model only adds output when local AI is
+    switched on (AI_ENABLED=1 or /api/ai) with a pinned model. No network probe."""
+    state = llm.ai_state()
+    enabled = bool(state.enabled and state.pin is not None)
+    mode = _mode_name(enabled, settings.llm_mock)
+    return {"mode": mode, "llm_mode": {"full": "ollama", "mock": "mock"}.get(mode, "off"), "model": settings.llm_model}
+
+
+def report_mode(report: ScanReport) -> Optional[str]:
+    """The mode a finished scan actually ran in, from its own privacy attestation."""
+    p = report.privacy
+    if p is None:
+        return None
+    return _mode_name(bool(getattr(p, "ai_enabled", False)), bool(p.llm_mock))
 
 
 def rule_title(rule_id: str, cwe_id: Optional[str]) -> str:
@@ -202,6 +209,7 @@ def report_summary(report: ScanReport) -> dict:
         "files_scanned": len(report.files),
         "files_skipped": len(report.skipped),
         "llm_mock": bool(privacy.llm_mock) if privacy else None,
+        "ai_enabled": bool(getattr(privacy, "ai_enabled", False)) if privacy else False,
         "data_leaves_machine": bool(privacy.data_leaves_machine) if privacy else False,
         "findings": findings,
     }
@@ -344,4 +352,5 @@ def scan_summary(scan_id: str, request: Request) -> dict:
         out["error"] = "Scan failed; see the ChaosMonkey server log."
     if rec.report is not None:
         out["summary"] = report_summary(rec.report)
+        out["mode"] = report_mode(rec.report) or out["mode"]
     return out
