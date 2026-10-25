@@ -37,6 +37,20 @@ class ValidationTrace(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+VerificationStatus = Literal["confirmed", "not_confirmed", "not_testable", "skipped"]
+
+
+class VerificationResult(BaseModel):
+    """Result of the Docker sandbox verification layer for one finding. Additive — absent
+    (``None``) means the finding was never run through the sandbox. ``not_confirmed`` must
+    never be rendered as "safe"; it only means this probe did not reproduce the issue."""
+    status: VerificationStatus = "skipped"
+    probe_id: str = ""
+    evidence: str = ""
+    detail: str = ""
+    sandbox_run_id: Optional[str] = None
+
+
 class Finding(BaseModel):
     # --- Fields shared with the frontend Finding shape ---
     id: str
@@ -78,6 +92,7 @@ class Finding(BaseModel):
     severity_score: float = 0.0
     severity_reason: str = ""
     validation: ValidationTrace = Field(default_factory=ValidationTrace)
+    verification: Optional[VerificationResult] = None
 
 
 class FileSummary(BaseModel):
@@ -163,6 +178,42 @@ class ScanRequest(BaseModel):
     chaos_mode: bool = False
     # Scan tests/fixtures/vendor/minified/lock files too (skipped by default to cut false positives).
     include_test_paths: bool = False
+
+
+class SandboxRunRequest(BaseModel):
+    scan_id: str
+    finding_ids: Optional[list[str]] = None  # None = verify every testable finding in the scan
+
+
+class SandboxAdhocRunRequest(BaseModel):
+    """Same as SandboxRunRequest, but for the frontend's in-browser scanner, which never calls
+    POST /api/scan and so has no server-side scan_id — it already has the files and findings
+    in memory (from the Web Worker scan) and hands them over directly."""
+    files: list[SourceFile]
+    findings: list[Finding]
+    finding_ids: Optional[list[str]] = None
+    name: str = "adhoc"
+
+
+class SandboxFindingResult(BaseModel):
+    finding_id: str
+    ruleId: str = ""
+    file: str = ""
+    verification: VerificationResult
+
+
+class SandboxRunRecord(BaseModel):
+    id: str
+    scan_id: str
+    status: Literal["queued", "running", "done", "error", "docker_unavailable"] = "queued"
+    docker_available: bool = False
+    gvisor: bool = False
+    stack_detected: str = ""
+    error: str = ""
+    results: list[SandboxFindingResult] = Field(default_factory=list)
+    log: list[str] = Field(default_factory=list)
+    canary_tag: str = ""
+    requests_sent: int = 0
 
 
 class ErrorResponse(BaseModel):

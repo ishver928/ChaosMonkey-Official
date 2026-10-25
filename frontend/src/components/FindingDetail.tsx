@@ -9,6 +9,7 @@ import { buildPrompt, streamExplanation, type OllamaStatus } from '@/lib/ollama'
 import { LANGUAGE_LABEL } from '@/lib/language'
 import { CodeViewer, DiffView } from './CodeViewer'
 import { CategoryTag, SeverityBadge } from './Severity'
+import { VerificationBadge } from './VerificationBadge'
 
 export interface LocalModel { enabled: boolean; model: string; status: OllamaStatus }
 
@@ -132,6 +133,7 @@ export function FindingDetail({
           <SeverityBadge severity={finding.severity} />
           <CategoryTag category={finding.category} />
           <span className="mono-label">{finding.ruleId}</span>
+          <VerificationBadge verification={finding.verification} />
           {dismissal && <span className="stamp !rotate-0">{dismissal.reason === 'false-positive' ? 'FALSE POSITIVE' : 'ACCEPTED RISK'}</span>}
         </div>
         <h2 id="finding-title" className="mt-3 text-[28px]">{rule?.title ?? finding.ruleId}</h2>

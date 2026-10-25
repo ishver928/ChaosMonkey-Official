@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Dismissal, ScanReport, SkippedFile, SourceFile } from '@/lib/types'
+import type { Dismissal, Finding, ScanReport, SkippedFile, SourceFile } from '@/lib/types'
 import { RULE_META } from '@/lib/rules'
 import { detectLanguage } from '@/lib/language'
 import { scanInWorker } from '@/lib/scanClient'
-import { navigate, useRoute, type Route } from '@/lib/router'
+import { navigate, useRoute, useRouteParam, type Route } from '@/lib/router'
+import { usePluginConnection } from '@/lib/plugin'
 import { detectOllama, type OllamaStatus } from '@/lib/ollama'
 import {
   loadDisabledRules, loadDismissed, loadHistory, loadSettings, isSeeded, markSeeded, resetAll,
@@ -12,12 +13,15 @@ import {
 import { SEED_FILES, SEED_ID, SEED_NAME, patchedSeedFiles } from '@/data/seedProject'
 import { Bow, Logo } from '@/components/Brand'
 import { LocalStatus } from '@/components/LocalStatus'
+import { ConnectedBadge } from '@/components/ConnectedBadge'
 import { ScanView } from '@/views/ScanView'
 import { ReportView } from '@/views/ReportView'
 import { HistoryView } from '@/views/HistoryView'
 import { RulesView } from '@/views/RulesView'
 import { SettingsView } from '@/views/SettingsView'
 import { AboutView } from '@/views/AboutView'
+import { ConnectedView } from '@/views/ConnectedView'
+import { BackendReportView } from '@/views/BackendReportView'
 
 export interface Current { report: ScanReport; sources: SourceFile[] | null }
 export interface ScanProgress { name: string; done: number; total: number; path: string }
@@ -41,6 +45,9 @@ const NAV: { route: Route; label: string }[] = [
 
 export default function App() {
   const route = useRoute()
+  const routeParam = useRouteParam()
+  const plugin = usePluginConnection()
+  const backendScanId = route === 'report' && routeParam && /^scan_[0-9a-f]{16}$/.test(routeParam) ? routeParam : null
   const [settings, setSettingsState] = useState<Settings>(loadSettings)
   const [disabledRules, setDisabledRulesState] = useState<string[]>(loadDisabledRules)
   const [dismissed, setDismissedState] = useState<Record<string, Dismissal>>(loadDismissed)
@@ -149,6 +156,12 @@ export default function App() {
     if (current?.sources) void runScan(current.sources, current.report.name, { seedId: current.report.seedId, skipped: current.report.skipped })
   }, [current, runScan])
 
+  /** Merges sandbox verification results (from an explicit, user-triggered Docker run) back
+   * onto the current report's findings. Does not touch anything else about the report. */
+  const applySandboxVerification = useCallback((findings: Finding[]) => {
+    setCurrent((c) => (c ? { ...c, report: { ...c.report, findings } } : c))
+  }, [])
+
   const resetDemo = useCallback(() => {
     resetAll()
     window.location.hash = '/scan'
@@ -172,7 +185,7 @@ export default function App() {
               </a>
             ))}
           </nav>
-          <div className="ml-auto"><LocalStatus /></div>
+          <div className="ml-auto flex flex-wrap items-center gap-2"><ConnectedBadge project={plugin} /><LocalStatus /></div>
         </div>
         <div className="gingham h-3 border-t-2 border-line" aria-hidden="true" />
         <Bow className="pointer-events-none absolute -bottom-6 left-[22%] hidden md:block" />
@@ -181,7 +194,9 @@ export default function App() {
 
       <main id="main" className="flex-1">
         {route === 'scan' && <ScanView onScan={runScan} onDemo={loadDemo} progress={progress} error={scanError} latest={history[0]} />}
-        {route === 'report' && (
+        {route === 'connected' && <ConnectedView project={plugin} />}
+        {backendScanId && <BackendReportView key={backendScanId} scanId={backendScanId} project={plugin} />}
+        {route === 'report' && !backendScanId && (
           <ReportView
             current={current}
             dismissed={dismissed}
@@ -190,6 +205,7 @@ export default function App() {
             onDemo={loadDemo}
             scanning={!!progress}
             localModel={{ enabled: settings.ollamaEnabled, model: settings.ollamaModel, status: ollama }}
+            onVerifyFindings={applySandboxVerification}
           />
         )}
         {route === 'history' && <HistoryView history={history} setHistory={setHistory} onOpen={openHistory} currentId={current?.report.id} />}

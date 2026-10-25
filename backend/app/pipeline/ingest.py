@@ -18,6 +18,8 @@ from ..models.schemas import SkippedFile, SourceFile
 SKIP_DIRS = {
     "node_modules", ".git", ".venv", "venv", "__pycache__", "dist", "build",
     ".next", ".cache", "vendor", ".idea", ".vscode", "coverage", ".pytest_cache",
+    # Claude Code plugin state + backups of pre-fix originals: never re-scan our own copies.
+    ".chaosmonkey",
 }
 SKIP_SUFFIXES = {
     ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".pdf", ".zip",

@@ -1,0 +1,12 @@
+{
+  "name": "chaosmonkey-local",
+  "description": "Local marketplace for the ChaosMonkey Claude Code plugin.",
+  "owner": { "name": "ChaosMonkey team" },
+  "plugins": [
+    {
+      "name": "chaosmonkey",
+      "source": "./",
+      "description": "Local-only security scanning of AI-generated code, with fixes you approve in a local UI."
+    }
+  ]
+}

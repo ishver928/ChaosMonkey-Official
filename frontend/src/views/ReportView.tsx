@@ -9,6 +9,7 @@ import { CableDivider, EmptyState, MonkeySwing } from '@/components/Brand'
 import { CategoryBreakdown, ScoreDial, SeverityBreakdown } from '@/components/Charts'
 import { CategoryIcon, SeverityIcon, SEV_VAR } from '@/components/Severity'
 import { FindingDetail, type LocalModel } from '@/components/FindingDetail'
+import { SandboxVerifyButton } from '@/components/SandboxVerifyButton'
 
 function timeAgo(t: number): string {
   const s = Math.round((Date.now() - t) / 1000)
@@ -50,7 +51,7 @@ function ExportMenu({ onExport }: { onExport: (k: 'md' | 'json' | 'html') => voi
   )
 }
 
-export function ReportView({ current, dismissed, setDismissed, onRescan, onDemo, scanning, localModel }: {
+export function ReportView({ current, dismissed, setDismissed, onRescan, onDemo, scanning, localModel, onVerifyFindings }: {
   current: Current | null
   dismissed: Record<string, Dismissal>
   setDismissed: (d: Record<string, Dismissal>) => void
@@ -58,6 +59,7 @@ export function ReportView({ current, dismissed, setDismissed, onRescan, onDemo,
   onDemo: () => void
   scanning: boolean
   localModel: LocalModel
+  onVerifyFindings: (findings: Finding[]) => void
 }) {
   const report = current?.report
   const [sevFilter, setSevFilter] = useState<Severity[]>([])
@@ -140,10 +142,11 @@ export function ReportView({ current, dismissed, setDismissed, onRescan, onDemo,
             {timeAgo(report.createdAt)} · {report.files.length} {report.files.length === 1 ? 'file' : 'files'} scanned{report.skipped.length ? ` · ${report.skipped.length} skipped` : ''} · {report.rulesRun} rules · {report.durationMs} ms in a Web Worker
           </p>
         </div>
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           {current?.sources && <button type="button" className="btn btn-quiet" onClick={onRescan} disabled={scanning}><RefreshCw size={15} aria-hidden="true" /> Re-scan</button>}
           <a href="#/scan" className="btn btn-secondary">New scan</a>
           <ExportMenu onExport={(k) => exportReport(k, { report, dismissed })} />
+          {current?.sources && <SandboxVerifyButton files={current.sources} findings={all} onVerified={onVerifyFindings} />}
         </div>
       </div>
 

@@ -1,0 +1,19 @@
+{
+  "description": "ChaosMonkey: offer a local security scan after Claude changes code, and offer /chaosmonkey:enable once per project.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/stop-hook.js"], "timeout": 20 }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/session-start-hook.js"], "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}
