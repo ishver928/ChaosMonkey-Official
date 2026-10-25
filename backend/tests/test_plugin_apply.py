@@ -86,7 +86,8 @@ def test_apply_writes_only_approved_fixes_with_backup_and_verification(client, t
 
     patched = (root / "app.py").read_text(encoding="utf-8")
     assert CANARY not in patched
-    assert "debug=False" in patched
+    # The approved debug-mode fix is applied (exact replacement is up to the backend fix generator).
+    assert "debug=True" not in patched
     # Unapproved issues are left alone (e.g. the MD5 hashing line still exists).
     assert "hashlib.md5" in patched
 

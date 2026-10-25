@@ -1,4 +1,7 @@
-"""Pipeline orchestrator: ingest -> detect -> LLM -> validate -> merge -> score -> fix -> report.
+"""Pipeline orchestrator: ingest -> detect -> score -> fix -> (optional) AI explain -> report.
+
+Detection is decided only by the deterministic rules. The optional local model (off by default)
+can only add explanations and fix suggestions to those findings (see ``ai_enrich.py``).
 
 Emits progress events (consumed by the SSE endpoint) at each stage and per finding, so the
 UI can animate the scan. Deterministic throughout: stable ordering, no timestamps inside
@@ -12,17 +15,16 @@ from dataclasses import dataclass, field
 from typing import Callable, Iterable
 
 from ..config import settings
-from ..kb.store import get_kb
-from ..llm.client import check_status
+from ..llm import client as llm
 from ..models.schemas import (
     ChaosModeResult, Finding, FileSummary, PrivacyAttestation, ScanReport, SourceFile,
 )
+from .ai_enrich import enrich_findings
 from .detect import run_detectors
 from .fixes import generate_fix
 from .ingest import Ingested
-from .llm_analyze import llm_findings_for_file
 from .severity import security_score
-from .validate import merge_findings, stable_sort, validate_llm_findings
+from .validate import stable_sort
 
 ProgressCb = Callable[[dict], None]
 
@@ -41,7 +43,11 @@ def _emit(cb: ProgressCb | None, **event) -> None:
 
 
 def _privacy() -> PrivacyAttestation:
+    state = llm.ai_state()
     return PrivacyAttestation(
+        ai_enabled=state.enabled,
+        model_digest=state.pin.digest if state.pin else None,
+        prompt_version=llm.PROMPT_VERSION,
         data_leaves_machine=settings.data_leaves_machine,
         model=settings.llm_model,
         seed=settings.seed,
@@ -73,7 +79,6 @@ def _summary(findings: list[Finding], score: int) -> str:
 
 def run_scan(ingested: Ingested, opts: ScanOptions, scan_id: str, progress: ProgressCb | None = None) -> ScanReport:
     t0 = time.perf_counter()
-    kb = get_kb()
     files = ingested.files
     file_map = {f.path: f for f in files}
     enabled = set(opts.enabled_rule_ids) if opts.enabled_rule_ids else None
@@ -81,39 +86,29 @@ def run_scan(ingested: Ingested, opts: ScanOptions, scan_id: str, progress: Prog
     _emit(progress, stage="ingest", message=f"Ingested {len(files)} file(s)", progress=0.1,
           files=[f.path for f in files], skipped=len(ingested.skipped))
 
-    # 1. Deterministic detectors
+    # 1. Deterministic detectors: the only source of findings.
     _emit(progress, stage="detectors", message="Running deterministic detectors", progress=0.25)
-    detector_findings = run_detectors(files, enabled)
-    for f in detector_findings:
+    findings = stable_sort(run_detectors(files, enabled))
+    for f in findings:
         _emit(progress, stage="finding", source="detector", rule=f.ruleId,
               severity=f.severity, file=f.file, line=f.line, title=f.title)
 
-    # 2. LLM analysis + validation
-    llm_valid: list[Finding] = []
-    rejected = 0
-    llm_status = check_status()
-    if opts.use_llm:
-        _emit(progress, stage="llm", message=f"Local model analysis ({llm_status.mode})", progress=0.5)
-        raw: list[dict] = []
-        for sf in files:
-            hints = [f"{f.ruleId} {f.title} at line {f.line}" for f in detector_findings if f.file == sf.path]
-            raw.extend(llm_findings_for_file(sf, kb, hints))
-        llm_valid, rejected = validate_llm_findings(raw, file_map, kb)
-        _emit(progress, stage="validation", message=f"Validated model findings ({rejected} rejected)", progress=0.7,
-              rejected=rejected, accepted=len(llm_valid))
-
-    # 3. Merge + order
-    findings = merge_findings(detector_findings, llm_valid)
-    findings = stable_sort(findings)
-
-    # 4. Fix generation
-    _emit(progress, stage="fixes", message="Generating and verifying fixes", progress=0.85)
+    # 2. Fix generation + verification
+    _emit(progress, stage="fixes", message="Generating and verifying fixes", progress=0.6)
     for f in findings:
         sf = file_map.get(f.file)
         if sf is not None:
             generate_fix(f, sf, files)
 
-    # 5. Chaos mode (optional mutation self-test)
+    # 3. Optional local AI: explanations/fixes for existing findings only. Off by default.
+    state = llm.ai_state()
+    if opts.use_llm and state.enabled and state.pin is not None and findings:
+        _emit(progress, stage="llm", message=f"Local model explanations ({state.pin.model})", progress=0.75)
+        counts = enrich_findings(findings, file_map, state.pin, progress)
+        _emit(progress, stage="validation", message=f"Model explanations: {counts['ai']} used, {counts['ai_fallback']} fell back",
+              progress=0.85, **counts)
+
+    # 4. Chaos mode (optional mutation self-test)
     chaos_result = None
     if opts.chaos_mode:
         _emit(progress, stage="chaos", message="Chaos Mode: injecting known bugs", progress=0.92)
@@ -146,11 +141,8 @@ def _lang(path: str):
 
 
 def _rules_run(enabled: set[str] | None) -> int:
-    from ..detectors.js_rules import JS_RULES
-    from ..detectors.python_ast import AST_RULES
-    from ..detectors.rules import RULES
-    total = len(RULES) + len(AST_RULES) + len(JS_RULES)
-    return total if enabled is None else len(enabled)
+    from .detect import ALL_RULE_IDS
+    return len(ALL_RULE_IDS) if enabled is None else len(enabled)
 
 
 # --- Chaos Mode ----------------------------------------------------------

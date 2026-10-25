@@ -1,8 +1,8 @@
 """Chaos Monkey FastAPI application.
 
 A local-only security checkpoint for AI-generated code. Binds to 127.0.0.1, enables CORS
-only for the local frontend, and refuses to start if any configured endpoint is non-local
-(the core privacy guarantee). The demo router is included for the judge experience.
+only for the local frontend, and refuses to start if any configured endpoint is non-local.
+The LLM client re-checks locality on every request. The demo router is included for the judges.
 """
 
 from __future__ import annotations
@@ -34,8 +34,10 @@ async def lifespan(app: FastAPI):
         for p in problems:
             logger.error("PRIVACY CHECK FAILED: %s", p)
         raise RuntimeError(f"Refusing to start: non-local endpoint configured: {problems}")
-    logger.info("Privacy check passed — all endpoints are localhost. data_leaves_machine=%s",
+    logger.info("Locality check passed: configured model endpoint is loopback. data_leaves_machine=%s",
                 settings.data_leaves_machine)
+    from .llm.client import init_from_settings
+    init_from_settings()  # AI stays off unless AI_ENABLED=1 and the selected model is installed
     from .kb.store import get_kb
     kb = get_kb()
     logger.info("Knowledge base ready: %d CWEs, embeddings=%s", kb.size(), kb.embed_backend)

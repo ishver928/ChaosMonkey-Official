@@ -1,8 +1,8 @@
 """Central configuration for Chaos Monkey.
 
 All settings are read from environment variables (optionally from a local ``.env``).
-Every network-facing setting is validated to be localhost-only so that proprietary
-code can never leave the machine — this is the core privacy guarantee.
+Every network-facing setting is validated to be loopback-only at startup, and the LLM client
+re-checks the URL on every request (see ``app/llm/client.py``).
 """
 
 from __future__ import annotations
@@ -36,12 +36,22 @@ _load_dotenv(BACKEND_DIR / ".env")
 
 
 def is_local_url(url: str) -> bool:
-    """True only if ``url`` targets this machine (loopback)."""
+    """True only if ``url`` is http(s) and targets this machine (a loopback address)."""
+    import ipaddress
+
     try:
-        host = urlparse(url).hostname or ""
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
     except ValueError:
         return False
-    return host in _LOCAL_HOSTS
+    if parsed.scheme not in {"http", "https"}:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -55,6 +65,11 @@ class Settings:
     top_k: int = field(default_factory=lambda: int(os.environ.get("LLM_TOP_K", "1")))
     top_p: float = field(default_factory=lambda: float(os.environ.get("LLM_TOP_P", "1")))
     llm_mock: bool = field(default_factory=lambda: os.environ.get("LLM_MOCK", "0") == "1")
+    # Local AI explanations are OFF by default; scanning never depends on them.
+    ai_enabled: bool = field(default_factory=lambda: os.environ.get("AI_ENABLED", "0") == "1")
+    num_ctx: int = field(default_factory=lambda: int(os.environ.get("LLM_NUM_CTX", "8192")))
+    num_predict: int = field(default_factory=lambda: int(os.environ.get("LLM_NUM_PREDICT", "700")))
+    llm_timeout: float = field(default_factory=lambda: float(os.environ.get("LLM_TIMEOUT", "60")))
 
     host: str = field(default_factory=lambda: os.environ.get("HOST", "127.0.0.1"))
     port: int = field(default_factory=lambda: int(os.environ.get("PORT", "8000")))

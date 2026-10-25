@@ -1,14 +1,14 @@
 import type { Category, Finding, Severity } from './types'
 
 export const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low']
-export const CATEGORIES: Category[] = ['secrets', 'pii', 'storage']
+export const CATEGORIES: Category[] = ['secrets', 'pii', 'storage', 'code']
 
 export const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 }
 export const SEVERITY_WEIGHT: Record<Severity, number> = { critical: 18, high: 9, medium: 4, low: 1.5 }
 
 export const SEVERITY_LABEL: Record<Severity, string> = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' }
-export const CATEGORY_LABEL: Record<Category, string> = { secrets: 'Exposed secrets', pii: 'Personal info', storage: 'Unsafe storage' }
-export const CATEGORY_SHORT: Record<Category, string> = { secrets: 'Secrets', pii: 'PII', storage: 'Storage' }
+export const CATEGORY_LABEL: Record<Category, string> = { secrets: 'Exposed secrets', pii: 'Personal info', storage: 'Unsafe storage', code: 'Unsafe code' }
+export const CATEGORY_SHORT: Record<Category, string> = { secrets: 'Secrets', pii: 'PII', storage: 'Storage', code: 'Code' }
 
 /** 0-100 risk: a saturating sum of severity weight x confidence, so forty lows can't reach 100. */
 export function chaosScore(findings: readonly Finding[]): number {

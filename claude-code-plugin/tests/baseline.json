@@ -1,37 +1,64 @@
 {
-  "demo_findings": 12,
-  "demo_report_hash": "3021e7ceca98a327",
+  "demo_findings": 14,
+  "demo_report_hash": "b3b40eec16b139e4",
   "determinism": [
     {
       "finding_ids_run1": [
-        "dc895e53a9c7",
         "b028a9a0dd6c",
-        "30b73623b3ed"
+        "30b73623b3ed",
+        "dc895e53a9c7"
       ],
-      "hash_run1": "e326648926776a0b",
-      "hash_run2": "e326648926776a0b",
+      "hash_run1": "c596bb7febaaff85",
+      "hash_run2": "c596bb7febaaff85",
       "identical": true
     },
     {
       "finding_ids_run1": [
-        "dc895e53a9c7",
         "b028a9a0dd6c",
-        "30b73623b3ed"
+        "30b73623b3ed",
+        "dc895e53a9c7"
       ],
-      "hash_run1": "e326648926776a0b",
-      "hash_run2": "e326648926776a0b",
+      "hash_run1": "c596bb7febaaff85",
+      "hash_run2": "c596bb7febaaff85",
       "identical": true
     }
   ],
   "health": {
+    "ai": {
+      "deterministic_options": {
+        "num_ctx": 8192,
+        "num_predict": 700,
+        "seed": 42,
+        "temperature": 0.0,
+        "top_k": 1,
+        "top_p": 1.0
+      },
+      "digest": null,
+      "enabled": false,
+      "error": null,
+      "ollama_version": null,
+      "prompt_version": "enrich-v1",
+      "selected_model": "qwen2.5-coder:7b-instruct",
+      "stream": false,
+      "structured_output": "JSON schema (format)"
+    },
     "data_leaves_machine": false,
     "embed_backend": "tfidf",
     "kb_size": 32,
     "llm": {
       "available": true,
-      "detail": "LLM_MOCK=1 \u2014 recorded responses",
+      "detail": "LLM_MOCK=1: deterministic stub, no network",
       "mode": "mock",
       "model": "qwen2.5-coder:7b-instruct"
+    },
+    "local_only": {
+      "follow_redirects": false,
+      "loopback_check": "per request (before send + httpx request hook)",
+      "ok": true,
+      "ollama_url": "http://127.0.0.1:11434",
+      "problems": [],
+      "proxy_env_vars_present_and_ignored": [],
+      "trust_env": false
     },
     "mode": "mock",
     "privacy_attestation": {

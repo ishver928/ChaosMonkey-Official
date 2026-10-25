@@ -1,7 +1,7 @@
 # Chaos Monkey — backend
 
 Local-only security checkpoint for AI-generated code. FastAPI + a deterministic analysis
-pipeline. No code ever leaves the machine.
+pipeline. The server binds to loopback and the only model endpoint it will call is a loopback URL.
 
 ## Quick start
 

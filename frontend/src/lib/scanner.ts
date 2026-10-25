@@ -76,6 +76,9 @@ export function scanFile(file: SourceFile, project: readonly SourceFile[], rules
   // Specific detectors beat generic ones: drop a generic hit that overlaps a specific sensitive hit.
   const specific = hits.filter((h) => !h.rule.generic && h.m.sensitive)
   let kept = hits.filter((h) => !h.rule.generic || !specific.some((s) => overlaps(s.m, h.m)))
+  // A rule listed in another rule's supersededBy wins on the same line (e.g. CM-J004 over CM-C004).
+  const lineOfHit = (m: RawMatch) => file.content.slice(0, m.start).split('\n').length
+  kept = kept.filter((h) => !h.rule.supersededBy?.length || !kept.some((o) => h.rule.supersededBy!.includes(o.rule.id) && lineOfHit(o.m) === lineOfHit(h.m)))
   // Sensitive ranges must not partially overlap or masking breaks: keep the earliest/longest.
   const sensitive = kept.filter((h) => h.m.sensitive).sort((a, b) => a.m.start - b.m.start || b.m.end - a.m.end)
   const accepted: typeof sensitive = []
@@ -126,6 +129,7 @@ export function scanFile(file: SourceFile, project: readonly SourceFile[], rules
       confidence: Math.round(m.confidence * 100) / 100,
       note: m.note,
       name: m.name,
+      cwe: rule.cwe,
     }
   })
 }
