@@ -34,6 +34,8 @@ const EXPECTED: [string, string, number][] = [
   ['CM-P004', 'seed/users.json', 17],
   ['CM-P005', 'seed/users.json', 8],
   ['CM-P007', 'src/api.ts', 4],
+  ['CM-J003', 'server/db.js', 24],
+  ['CM-P008', 'db/schema.sql', 6],
 ]
 
 /** Raw values that must never show up in any finding's snippet or masked value. */

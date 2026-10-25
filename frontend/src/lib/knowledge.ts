@@ -1,11 +1,25 @@
 import type { Finding } from './types'
+import { CATALOG, fixExample } from './catalog'
 
 /*
- * The "Built-in analyst": a hand-written knowledge base per rule plus fix templates that rewrite the
- * finding's (masked) line into a safer version. Deterministic and fully offline.
+ * The "Built-in analyst": the explanation and steps for each rule (from rules/catalog.json) plus
+ * fix templates that rewrite the finding's (masked) line into a safer version. Deterministic and
+ * fully offline. Every template is syntax-checked in context by backend/tests/test_fix_syntax.py.
  */
 
-export interface Fix { before: string; after: string; language: string; note?: string }
+export interface Fix {
+  before: string
+  /** What the UI shows: any needed imports, then the replacement code. */
+  after: string
+  language: string
+  note?: string
+  /** A reference example to adapt, not a drop-in replacement for the flagged line. */
+  standalone?: boolean
+  /** Import lines the replacement needs (already shown at the top of `after`). */
+  imports?: string[]
+  /** Line edits (1-based, inclusive) that apply this fix in place. Defaults to replacing the flagged line with `after`. */
+  replace?: { from: number; to: number; text: string }[]
+}
 export interface Advice { why: string; steps: string[]; fix: Fix }
 
 export const ROTATE_STEP = 'Rotate this credential now. Deleting it from code doesn’t un-leak it: it’s already in git history, CI logs, and any clone or AI context window that saw it.'
@@ -13,10 +27,31 @@ export const ROTATE_STEP = 'Rotate this credential now. Deleting it from code do
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 function isPython(f: Finding) { return f.language === 'python' }
+function isJs(f: Finding) { return f.language === 'javascript' || f.language === 'typescript' }
 function isFrontend(f: Finding) { return /\.(tsx|jsx)$/.test(f.file) || /(^|\/)(src\/components|public|client|web)\//.test(f.file) }
 function fileLang(f: Finding): string {
   if (f.language === 'env') return 'dotenv'
   return f.language
+}
+const indentOf = (line: string) => line.slice(0, line.length - line.trimStart().length)
+const isEsm = (content: string) => /^\s*(?:import\s.+from\s|import\s*['"]|export\s)/m.test(content)
+const jsImport = (content: string | undefined, name: string, mod: string) => (content && isEsm(content) ? `import ${name} from '${mod}'` : `const ${name} = require('${mod}')`)
+
+/** A fix that replaces lines in place and needs some imports at the top of the file. */
+function inPlace(f: Finding, line: string, replacement: string, imports: string[] = [], note?: string, extra: { from: number; to: number; text: string }[] = []): Fix {
+  return {
+    language: fileLang(f), before: line,
+    after: imports.length ? `${imports.join('\n')}\n\n${replacement}` : replacement,
+    imports: imports.length ? imports : undefined,
+    replace: [{ from: f.line, to: f.line, text: replacement }, ...extra],
+    note,
+  }
+}
+
+/** The reviewed example from rules/catalog.json, shown as a pattern to adapt. */
+function example(f: Finding, line: string, note?: string): Fix {
+  const ex = fixExample(f.ruleId, f.language)
+  return { language: ex?.language ?? fileLang(f), before: line, after: ex?.code.trimEnd() ?? '// Review and remediate manually.', standalone: true, note }
 }
 
 function toEnvName(raw: string | undefined, fallback: string): string {
@@ -51,9 +86,9 @@ const SECRET_DEFAULT_ENV: Record<string, string> = {
   'CM-D004': 'JWT_SECRET',
 }
 
-function secretFix(f: Finding, line: string): Fix {
+function secretFix(f: Finding, line: string, content?: string): Fix {
   const name = toEnvName(assignedName(f, line), SECRET_DEFAULT_ENV[f.ruleId] ?? 'API_SECRET')
-  const envName = f.ruleId === 'CM-S011' ? 'DATABASE_URL' : /^(CONFIG|KEY|TOKEN|SECRET|STRIPE|CLIENT)$/.test(name) ? (SECRET_DEFAULT_ENV[f.ruleId] ?? name) : name
+  const envName = f.ruleId === 'CM-S011' ? 'DATABASE_URL' : /^(CONFIG|KEY|TOKEN|SECRET|STRIPE|CLIENT|HEADERS)$/.test(name) ? (SECRET_DEFAULT_ENV[f.ruleId] ?? name) : name
   if (f.language === 'env') {
     return {
       language: 'dotenv', before: line,
@@ -64,26 +99,37 @@ function secretFix(f: Finding, line: string): Fix {
   if (f.language === 'shell') {
     return { language: 'shell', before: line, after: `: "\${${envName}:?set ${envName} in your CI secret store}"`, note: 'Fail fast if the secret is missing instead of shipping a default.' }
   }
-  const needle = f.ruleId === 'CM-S011' ? 'postgres' : f.maskedValue.split('\n')[0] ?? ''
+  if (!isPython(f) && !isJs(f)) return { language: fileLang(f), before: line, after: `# Move this value to your secret store and reference ${envName} instead.`, standalone: true }
+  if (f.ruleId === 'CM-S009') {
+    const decl = /^(\s*(?:export\s+)?(?:const|let|var)\s+[A-Za-z_$][\w$]*\s*=\s*|\s*[A-Za-z_]\w*\s*=\s*)/.exec(line)?.[1] ?? (isPython(f) ? 'PRIVATE_KEY = ' : 'const privateKey = ')
+    const text = isPython(f) ? `${decl}open(os.environ["PRIVATE_KEY_PATH"], encoding="utf-8").read()` : `${decl}fs.readFileSync(process.env.PRIVATE_KEY_PATH, 'utf8')`
+    const imports = [isPython(f) ? 'import os' : jsImport(content, 'fs', 'fs')]
+    return { ...inPlace(f, line, text, imports, 'Mount the key from a secret manager or a file outside the repo.'), replace: [{ from: f.line, to: f.endLine, text }] }
+  }
   if (f.ruleId === 'CM-S011') {
     const after = line.replace(/\s*\|\|\s*(["'`])[^"'`]*\1/, '').replace(/(["'`])[a-z+]+:\/\/[^"'`]*\1/, envRef(f, 'DATABASE_URL'))
-    return { language: fileLang(f), before: line, after }
+    return inPlace(f, line, after, isPython(f) ? ['import os'] : [])
   }
-  if (isFrontend(f) && f.language !== 'python') {
+  if (isFrontend(f) && !isPython(f)) {
     return {
-      language: fileLang(f), before: line,
-      after: `// Never ship this to the browser. Anything in the bundle is public.\n// Call your own API route and keep ${envName} on the server:\nconst res = await fetch('/api/proxy', { credentials: 'include' })`,
+      language: fileLang(f), before: line, standalone: true,
+      after: `// Never ship this to the browser. Anything in the bundle is public.\n// Call your own API route and keep ${envName} on the server:\nasync function callApi() {\n  return fetch('/api/proxy', { credentials: 'include' })\n}`,
       note: 'import.meta.env.VITE_* is still bundled into client JS, so it is not a fix for secrets.',
     }
   }
-  const pyImport = isPython(f) ? 'import os\n\n' : ''
-  return { language: fileLang(f), before: line, after: `${pyImport}${replaceLiteral(line, needle, envRef(f, envName))}` }
+  const needle = f.maskedValue.split('\n')[0] ?? ''
+  if (f.ruleId === 'CM-S012' && /(["'`])Bearer\s/.test(line)) {
+    const lit = isPython(f) ? `"Bearer " + ${envRef(f, envName)}` : `\`Bearer \${${envRef(f, envName)}}\``
+    return inPlace(f, line, replaceLiteral(line, needle, lit), isPython(f) ? ['import os'] : [])
+  }
+  return inPlace(f, line, replaceLiteral(line, needle, envRef(f, envName)), isPython(f) ? ['import os'] : [])
 }
 
 function redactArgs(f: Finding, line: string): string {
   const pyInterp = /\{([^{}]*(?:user|email|ssn|password|dob|phone|card)[^{}]*)\}/gi
-  if (isPython(f)) return line.replace(pyInterp, (_m, e: string) => (/\[["'](email|ssn|password|dob|phone|card)["']\]/i.test(e) ? `{user['id']}` : `{redact(${e})}`))
-  if (line.includes('${')) return line.replace(/\$\{([^}]+)\}/g, (m, e: string) => (/(user|email|ssn|password|dob|phone|card)/i.test(e) ? `\${redact(${e})}` : m))
+  if (isPython(f)) {
+    if (pyInterp.test(line)) return line.replace(pyInterp, (_m, e: string) => (/\[["'](email|ssn|password|dob|phone|card)["']\]/i.test(e) ? `{user['id']}` : `{redact(${e})}`))
+  } else if (line.includes('${')) return line.replace(/\$\{([^}]+)\}/g, (m, e: string) => (/(user|email|ssn|password|dob|phone|card)/i.test(e) ? `\${redact(${e})}` : m))
   const open = line.indexOf('(')
   const close = line.lastIndexOf(')')
   if (open < 0 || close < open) return line
@@ -103,118 +149,287 @@ def redact(v):
         return {k: "[redacted]" if k in SENSITIVE else redact(x) for k, x in v.items()}
     return v`
 
-function fixFor(f: Finding, line: string): Fix {
-  const lang = fileLang(f)
-  if (f.ruleId === 'CM-S007' && !isPython(f) && f.language !== 'env' && f.language !== 'shell') {
-    return {
-      language: lang, before: line,
-      after: replaceLiteral(line, f.maskedValue, 'import.meta.env.VITE_GOOGLE_MAPS_KEY'),
-      note: 'Maps browser keys end up public by design, so the real fix is in Google Cloud Console: restrict the key to your domains and to the Maps APIs only.',
+/** Helper + rewritten line, with the helper indented to the line's block so it stays valid in place. */
+function withHelper(f: Finding, line: string, rewritten: string): string {
+  const helper = isPython(f) ? REDACT_HELPER_PY : REDACT_HELPER_JS
+  const ind = indentOf(line)
+  return `${helper.split('\n').map((l) => (l ? ind + l : l)).join('\n')}\n\n${rewritten}`
+}
+
+// ---------------------------------------------------------------------------
+// Weak password hashing (CM-D002): bcrypt with real hash/verify semantics
+// ---------------------------------------------------------------------------
+
+const OPERAND = String.raw`[\w$.\[\]"']+(?:\(\))?`
+const PY_HASH = /hashlib\.(?:md5|sha1)\(((?:[^()]|\([^()]*\))*)\)(\.hexdigest\(\)|\.digest\(\))?/
+const JS_HASH = /(?:crypto\.)?createHash\(\s*['"](?:md5|sha1)['"]\s*\)\.update\(((?:[^()]|\([^()]*\))*)\)(?:\.digest\([^)]*\))?/
+
+/** A comparison against `name` in the next few lines of the same block. Mirrors fixes._later_comparison. */
+function laterComparison(rows: string[], idx: number, name: string, js: boolean): { j: number; m: RegExpExecArray; operandFirst: boolean } | null {
+  const ops = js ? '(===|==|!==|!=)' : '(==|!=)'
+  const n = `(?<![\\w$.])${esc(name)}(?![\\w$])`
+  const base = indentOf(rows[idx] ?? '').length
+  for (let j = idx + 1; j < Math.min(rows.length, idx + 8); j++) {
+    const row = rows[j]!
+    if (row.trim() && indentOf(row).length < base) break
+    let m = new RegExp(`(${OPERAND})\\s*${ops}\\s*${n}`).exec(row)
+    if (m && m[1] !== name) return { j, m, operandFirst: true }
+    m = new RegExp(`${n}\\s*${ops}\\s*(${OPERAND})`).exec(row)
+    if (m) return { j, m, operandFirst: false }
+  }
+  return null
+}
+
+/** Line index and kind of the JS function enclosing line `idx`. Mirrors fixes._enclosing_js_function. */
+function enclosingJsFunction(rows: string[], idx: number): { j: number; kind: 'function' | 'arrow' | 'method' } | null {
+  let depth = 0
+  for (let j = idx; j >= 0; j--) {
+    const text = rows[j]!.replace(/(['"`])(?:\\.|(?!\1).)*\1/g, '').replace(/\/\/.*$/, '')
+    const seg = j === idx ? '' : text
+    depth += (seg.match(/\}/g) ?? []).length - (seg.match(/\{/g) ?? []).length
+    if (depth < 0) {
+      if (/\bfunction\b/.test(text)) return { j, kind: 'function' }
+      if (text.includes('=>')) return { j, kind: 'arrow' }
+      if (/^\s*(?:static\s+)?(?:get\s+|set\s+)?[A-Za-z_$][\w$]*\s*\([^)]*\)\s*\{/.test(text) && !/^\s*(?:if|for|while|switch|catch)\b/.test(text)) return { j, kind: 'method' }
+      depth = 0
     }
   }
+  return null
+}
+
+function makeAsync(line: string, kind: 'function' | 'arrow' | 'method'): string {
+  if (/\basync\b/.test(line)) return line
+  if (kind === 'function') return line.replace(/\bfunction\b/, 'async function')
+  if (kind === 'arrow') return line.replace(/(\([^()]*\)|[A-Za-z_$][\w$]*)\s*=>/, 'async $1 =>')
+  return line.replace(/^(\s*(?:static\s+)?)/, '$1async ')
+}
+
+function weakHashFix(f: Finding, line: string, content?: string): Fix {
+  const rows = content?.split('\n')
+  const idx = f.line - 1
+  if (isPython(f)) {
+    const m = PY_HASH.exec(line)
+    let arg = m?.[1]?.trim() ?? ''
+    if (!m || !arg) return example(f, line)
+    if (!arg.endsWith('.encode()') && !/^b["'].*["']$/.test(arg)) {
+      if (!/^[A-Za-z_][\w.]*$/.test(arg)) return example(f, line)
+      arg = `${arg}.encode()`
+    }
+    const before = line.slice(0, m.index)
+    const after = line.slice(m.index + m[0].length)
+    const note = 'Verify with bcrypt.checkpw(password.encode(), stored_hash.encode()). argon2id (argon2-cffi) is an equally good choice.'
+    const cmpA = new RegExp(`^\\s*(==|!=)\\s*(${OPERAND})`).exec(after)
+    const cmpB = new RegExp(`(${OPERAND})\\s*(==|!=)\\s*$`).exec(before)
+    if (cmpA || cmpB) {
+      const [op, other] = cmpA ? [cmpA[1]!, cmpA[2]!] : [cmpB![2]!, cmpB![1]!]
+      const check = `${op === '!=' ? 'not ' : ''}bcrypt.checkpw(${arg}, ${other}.encode())`
+      const text = cmpB ? before.slice(0, cmpB.index) + check + after : before + check + after.slice(cmpA![0].length)
+      return inPlace(f, line, text, ['import bcrypt'], 'Stored values must be bcrypt hashes (re-hash on next login). argon2id is an equally good choice.')
+    }
+    const assigned = /^\s*([A-Za-z_]\w*)\s*=\s*$/.exec(before)
+    const later = rows && assigned && !after.trim() ? laterComparison(rows, idx, assigned[1]!, false) : null
+    if (later && rows) {
+      const other = later.operandFirst ? later.m[1]! : later.m[3]!
+      const check = `${later.m[2] === '!=' ? 'not ' : ''}bcrypt.checkpw(${arg}, ${other}.encode())`
+      const row = rows[later.j]!
+      const verify = row.slice(0, later.m.index) + check + row.slice(later.m.index + later.m[0].length)
+      const text = `${indentOf(line)}# password is verified with bcrypt.checkpw below`
+      return inPlace(f, line, text, ['import bcrypt'], 'Stored values must be bcrypt hashes (re-hash on next login).', [{ from: later.j + 1, to: later.j + 1, text: verify }])
+    }
+    return inPlace(f, line, `${before}bcrypt.hashpw(${arg}, bcrypt.gensalt())${m[2] === '.hexdigest()' ? '.decode()' : ''}${after}`, ['import bcrypt'], note)
+  }
+  if (!isJs(f)) return example(f, line)
+  const m = JS_HASH.exec(line)
+  const arg = m?.[1]?.trim() ?? ''
+  // Without the file we can't tell whether `await` is legal here: show the reviewed example.
+  if (!m || !arg || !rows) return example(f, line, 'Hash with await bcrypt.hash(password, 12) and verify with await bcrypt.compare(password, storedHash) inside an async function.')
+  const extra: { from: number; to: number; text: string }[] = []
+  let note = 'Verify with await bcrypt.compare(password, storedHash). argon2id (argon2 package) is an equally good choice.'
+  const fn = enclosingJsFunction(rows, idx)
+  if (!fn && !isEsm(content!)) return example(f, line)
+  if (fn && !/\basync\b/.test(rows[fn.j]!)) {
+    extra.push({ from: fn.j + 1, to: fn.j + 1, text: makeAsync(rows[fn.j]!, fn.kind) })
+    note = `Make the enclosing function async (line ${fn.j + 1}); its callers must then await it. ${note}`
+  }
+  const imports = [jsImport(content, 'bcrypt', 'bcryptjs')]
+  const before = line.slice(0, m.index)
+  const after = line.slice(m.index + m[0].length)
+  const cmpA = new RegExp(`^\\s*(===|==|!==|!=)\\s*(${OPERAND})`).exec(after)
+  const cmpB = new RegExp(`(${OPERAND})\\s*(===|==|!==|!=)\\s*$`).exec(before)
+  if (cmpA || cmpB) {
+    const [op, other] = cmpA ? [cmpA[1]!, cmpA[2]!] : [cmpB![2]!, cmpB![1]!]
+    const check = `${op.startsWith('!') ? '!' : ''}(await bcrypt.compare(${arg}, ${other}))`
+    return inPlace(f, line, cmpB ? before.slice(0, cmpB.index) + check + after : before + check + after.slice(cmpA![0].length), imports, note, extra)
+  }
+  const assigned = /^\s*(?:const|let|var)?\s*([A-Za-z_$][\w$]*)\s*=\s*$/.exec(before)
+  const later = assigned && !after.replace(/[\s;]/g, '') ? laterComparison(rows, idx, assigned[1]!, true) : null
+  if (later) {
+    const other = later.operandFirst ? later.m[1]! : later.m[3]!
+    const check = `${later.m[2]!.startsWith('!') ? '!' : ''}(await bcrypt.compare(${arg}, ${other}))`
+    const row = rows[later.j]!
+    extra.push({ from: later.j + 1, to: later.j + 1, text: row.slice(0, later.m.index) + check + row.slice(later.m.index + later.m[0].length) })
+    return inPlace(f, line, `${indentOf(line)}// password is verified with bcrypt.compare below`, imports, `Stored values must be bcrypt hashes (re-hash on next login). ${note}`, extra)
+  }
+  return inPlace(f, line, `${before}await bcrypt.hash(${arg}, 12)${after}`, imports, note, extra)
+}
+
+// ---------------------------------------------------------------------------
+// Per-rule templates
+// ---------------------------------------------------------------------------
+
+function cookieFix(f: Finding, line: string): Fix {
+  if (/document\.cookie/.test(line)) return { ...example(f, line), note: 'Don’t set auth cookies from the browser; set them server-side with HttpOnly, Secure and SameSite.' }
+  const open = line.search(isPython(f) ? /\.set_cookie\s*\(/ : /\b(?:res|response|ctx|reply)\.(?:cookie|setCookie)\s*\(/)
+  const close = line.lastIndexOf(')')
+  if (open < 0 || close < open) return example(f, line)
+  const call = line.slice(open, close + 1)
+  if (isPython(f)) {
+    const add = [
+      !/httponly\s*=\s*True/i.test(call) && 'httponly=True',
+      !/secure\s*=\s*True/i.test(call) && 'secure=True',
+      !/samesite\s*=/i.test(call) && 'samesite="Lax"',
+    ].filter(Boolean)
+    return inPlace(f, line, add.length ? `${line.slice(0, close)}, ${add.join(', ')}${line.slice(close)}` : line)
+  }
+  const missing = [
+    !/httpOnly\s*:\s*true/i.test(call) && 'httpOnly: true',
+    !/secure\s*:\s*true/i.test(call) && 'secure: true',
+    !/sameSite\s*:/i.test(call) && "sameSite: 'lax'",
+  ].filter(Boolean)
+  if (!missing.length) return inPlace(f, line, line)
+  const brace = call.indexOf('{')
+  const text = brace >= 0 ? `${line.slice(0, open + brace + 1)} ${missing.join(', ')},${line.slice(open + brace + 1)}` : `${line.slice(0, close)}, { ${missing.join(', ')} }${line.slice(close)}`
+  return inPlace(f, line, text)
+}
+
+function queryStringFix(f: Finding, line: string): Fix {
+  const m = /fetch\(\s*(`|'|")([^`'"?]*)\?([^`'"]*)\1\s*\)/.exec(line)
+  if (!m || !isJs(f)) return example(f, line)
+  const pairs = m[3]!.split('&').map((kv) => kv.split('=')).filter((kv) => kv.length === 2)
+  const fields = pairs.map(([k, v]) => { const e = /^\$\{([^}]+)\}$/.exec(v!); return e ? (e[1]!.trim() === k ? k : `${k}: ${e[1]!.trim()}`) : `${k}: ${JSON.stringify(v)}` })
+  const call = `fetch(${m[1]}${m[2]}${m[1]}, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ${fields.join(', ')} }) })`
+  return inPlace(f, line, line.slice(0, m.index) + call + line.slice(m.index + m[0].length), [], 'Sensitive values travel in the request body instead of the URL, so they stay out of logs and browser history.')
+}
+
+function plaintextPasswordFix(f: Finding, line: string): Fix {
+  if (f.language === 'sql') {
+    return { language: 'sql', before: line, after: line.replace(/\b(password|passwd|pwd)\s+(?:VARCHAR|TEXT|CHAR|NVARCHAR)(\(\d+\))?/i, 'password_hash TEXT') + '  -- bcrypt / argon2id hash, never the password' }
+  }
+  if (isPython(f)) {
+    const m = /(["'])password\1\s*:\s*((?:[^,}()]|\([^()]*\))+)/.exec(line)
+    if (m) {
+      const value = m[2]!.trim()
+      const text = line.replace(m[0], `"password_hash": bcrypt.hashpw(${value}.encode(), bcrypt.gensalt()).decode()`)
+      return inPlace(f, line, text, ['import bcrypt'], 'Check logins with bcrypt.checkpw(password.encode(), stored_hash.encode()).')
+    }
+  }
+  return example(f, line, 'Hash the password with bcrypt (or argon2id) before it is stored, and store only the hash.')
+}
+
+const SIMPLE: Record<string, (f: Finding, line: string) => Fix | null> = {
+  'CM-A003': (f, line) => (/(?<![\w.])eval\s*\(/.test(line) ? inPlace(f, line, line.replace(/(?<![\w.])eval\s*\(/, 'ast.literal_eval('), ['import ast'], 'literal_eval accepts Python literals only, never code.') : null),
+  'CM-A004': (f, line) => (/\byaml\.load\(/.test(line) ? inPlace(f, line, line.replace(/\byaml\.load\(\s*([^,()]+?)\s*(?:,\s*Loader\s*=\s*[\w.]+\s*)?\)/, 'yaml.safe_load($1)')) : null),
+  'CM-A005': (f, line) => inPlace(f, line, line.replace(/debug\s*=\s*True/, 'debug=os.environ.get("FLASK_DEBUG") == "1"'), ['import os'], 'Debug stays off unless FLASK_DEBUG=1 is set on a developer machine.'),
+  'CM-A006': (f, line) => inPlace(f, line, line.replace(/\bverify\s*=\s*False\b/, 'verify=True'), [], 'If you use a private CA, pass verify="/path/to/ca.pem" instead.'),
+  'CM-C003': (f, line) => {
+    const m = /^(\s*)DEBUG\s*=\s*True\b(.*)$/.exec(line)
+    if (m) return inPlace(f, line, `${m[1]}DEBUG = os.environ.get("DEBUG") == "1"${m[2]}`, ['import os'])
+    return inPlace(f, line, line.replace(/\bdebug\s*=\s*True\b/, 'debug=False').replace(/(\.debug\s*=\s*)True\b/, '$1False').replace(/(\[\s*["']DEBUG["']\s*\]\s*=\s*)True\b/, '$1False'))
+  },
+  'CM-J001': (f, line) => (/\.innerHTML\s*=(?!=)/.test(line) && !/\+=/.test(line) ? inPlace(f, line, line.replace(/\.innerHTML(\s*=)/, '.textContent$1'), [], 'If you really need markup, sanitize it first: el.innerHTML = DOMPurify.sanitize(html).') : null),
+  'CM-J005': (f, line) => (/\bjwt\.decode\s*\(\s*[^,()]+?\s*\)/.test(line) ? inPlace(f, line, line.replace(/\bjwt\.decode\s*\(\s*([^,()]+?)\s*\)/, "jwt.verify($1, process.env.JWT_SECRET, { algorithms: ['HS256'] })")) : null),
+  'CM-C002': (f, line) => (isPython(f) && /(?<![\w.])random\.(?:choice|choices|sample|randint)\s*\(/.test(line) ? inPlace(f, line, line.replace(/(?<![\w.])random\.(choice|choices|sample|randint)\s*\(/g, 'secrets.SystemRandom().$1('), ['import secrets']) : null),
+}
+
+function corsFix(f: Finding, line: string): Fix {
+  if (isPython(f)) {
+    const env = 'os.environ.get("ALLOWED_ORIGINS", "").split(",")'
+    const text = line.replace(/allow_origins\s*=\s*\[\s*["']\*["']\s*\]/, `allow_origins=${env}`).replace(/\borigins\s*=\s*["']\*["']/, `origins=${env}`).replace(/\bCORS\(\s*(\w+)\s*\)/, `CORS($1, origins=${env})`)
+    return text === line ? example(f, line) : inPlace(f, line, text, ['import os'], 'List the exact frontends you trust in ALLOWED_ORIGINS.')
+  }
+  const env = "(process.env.ALLOWED_ORIGINS || '').split(',')"
+  const text = line.replace(/\borigin\s*:\s*(?:["']\*["']|true\b)/, `origin: ${env}`).replace(/\bcors\(\s*\)/, `cors({ origin: ${env} })`)
+  return text === line ? example(f, line) : inPlace(f, line, text, [], 'List the exact frontends you trust in ALLOWED_ORIGINS.')
+}
+
+function fixFor(f: Finding, line: string, content?: string): Fix {
+  const lang = fileLang(f)
+  if (f.ruleId === 'CM-S007' && isJs(f)) {
+    return inPlace(f, line, replaceLiteral(line, f.maskedValue, 'import.meta.env.VITE_GOOGLE_MAPS_KEY'), [],
+      'Maps browser keys end up public by design, so the real fix is in Google Cloud Console: restrict the key to your domains and to the Maps APIs only.')
+  }
+  const simple = SIMPLE[f.ruleId]?.(f, line)
+  if (simple) return simple
   switch (f.ruleId) {
-    case 'CM-S009':
-      return { language: lang, before: line, after: isPython(f) ? 'PRIVATE_KEY = open(os.environ["PRIVATE_KEY_PATH"]).read()' : 'export const SAML_PRIVATE_KEY = fs.readFileSync(process.env.SAML_PRIVATE_KEY_PATH, \'utf8\')', note: 'Mount the key from a secret manager or a file outside the repo.' }
     case 'CM-S013':
       return { language: 'shell', before: `# ${f.file}\n${line}`, after: 'git rm --cached .env\necho ".env" >> .gitignore\ncp .env .env.example   # then blank every value in .env.example\ngit commit -m "Stop tracking .env"', note: 'If the repo was ever pushed, also purge it from history (git filter-repo) and rotate every value.' }
     case 'CM-D008':
       return { language: 'gitignore', before: '# .gitignore\nnode_modules/\ndist/', after: '# .gitignore\nnode_modules/\ndist/\n.env\n.env.*\n!.env.example' }
     case 'CM-P001':
-      return { language: lang, before: line, after: line.replace(f.maskedValue, 'user1@example.test'), note: 'Use reserved test domains (example.test) or generate fixtures with a faker library.' }
+      return inPlace(f, line, line.replace(f.maskedValue, 'user1@example.test'), [], 'Use reserved test domains (example.test) or generate fixtures with a faker library.')
     case 'CM-P002':
-      return { language: lang, before: line, after: line.replace(f.maskedValue, '(555) 010-0000'), note: '555-01xx numbers are reserved for fiction and testing.' }
+      return inPlace(f, line, line.replace(f.maskedValue, '(555) 010-0000'), [], '555-01xx numbers are reserved for fiction and testing.')
     case 'CM-P003':
-      return { language: lang, before: line, after: line.replace(f.maskedValue, '000-00-0000'), note: 'Area 000 is never issued, so it can’t belong to a real person. Better: don’t store SSNs at all.' }
+      return inPlace(f, line, line.replace(f.maskedValue, '000-00-0000'), [], 'Area 000 is never issued, so it can’t belong to a real person. Better: don’t store SSNs at all.')
     case 'CM-P004':
-      return { language: lang, before: line, after: /^\s*(\/\/|#)/.test(line) ? line.replace(f.maskedValue, 'Stripe test card (see their docs)') : line.replace(f.maskedValue, 'tok_visa'), note: 'Never store PANs. Use your processor’s tokens; that keeps you out of PCI scope.' }
+      return inPlace(f, line, /^\s*(\/\/|#)/.test(line) ? line.replace(f.maskedValue, 'Stripe test card (see their docs)') : line.replace(f.maskedValue, 'tok_visa'), [], 'Never store PANs. Use your processor’s tokens; that keeps you out of PCI scope.')
     case 'CM-P005':
-      return { language: lang, before: line, after: line.replace(f.maskedValue, '1970-01-01') }
+      return inPlace(f, line, line.replace(f.maskedValue, '1970-01-01'))
     case 'CM-P006':
-      return { language: lang, before: line, after: `${isPython(f) ? REDACT_HELPER_PY : REDACT_HELPER_JS}\n\n${redactArgs(f, line)}` }
-    case 'CM-P007': {
-      const keys = [...line.matchAll(/[?&](\w+)=/g)].map((m) => m[1]).join(', ')
-      const after = line.replace(/\?[^`'"]*(?=[`'"])/, '')
-      return { language: lang, before: line, after: `${after}\n  // send ${keys || 'it'} in the body instead:\n  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ${keys} }),` }
-    }
+      if (!isPython(f) && !isJs(f)) return example(f, line)
+      return inPlace(f, line, withHelper(f, line, redactArgs(f, line)), [], 'Better still, log an id instead of the person.')
+    case 'CM-P007':
+      return queryStringFix(f, line)
     case 'CM-D001': {
       const userish = /user|profile/i.test(f.name ?? '') && !/token|auth|session/i.test(f.name ?? '')
       return userish
-        ? { language: lang, before: line, after: 'sessionStorage.setItem(\'userId\', String(user.id))  // ids only; fetch the profile when needed' }
-        : { language: lang, before: line, after: '// Server side, after login:\nres.cookie(\'session\', token, { httpOnly: true, secure: true, sameSite: \'lax\' })\n\n// Client side: no storage at all, just send cookies\nfetch(\'/api/todos\', { credentials: \'include\' })', note: 'HttpOnly cookies are invisible to JavaScript, so an XSS bug can’t read the token.' }
+        ? inPlace(f, line, `${indentOf(line)}sessionStorage.setItem('userId', String(user.id))  // ids only; fetch the profile when needed`)
+        : { ...example(f, line), note: 'HttpOnly cookies are invisible to JavaScript, so an XSS bug can’t read the token.' }
     }
     case 'CM-D002':
-      return isPython(f)
-        ? { language: lang, before: line, after: line.replace(/hashlib\.(?:md5|sha1)\([^)]*\)(?:\.hexdigest\(\))?/, 'bcrypt.hashpw(password.encode(), bcrypt.gensalt(rounds=12))') }
-        : { language: lang, before: line, after: line.replace(/crypto\.createHash\(\s*["'](?:md5|sha1)["']\s*\)(?:\.update\([^)]*\))?(?:\.digest\([^)]*\))?/, 'await bcrypt.hash(password, 12)'), note: 'Compare with bcrypt.compare(password, user.passwordHash). argon2id is an equally good choice.' }
+      return weakHashFix(f, line, content)
     case 'CM-D003':
-      return f.language === 'sql'
-        ? { language: lang, before: line, after: line.replace(/\b(password|passwd|pwd)\s+(?:VARCHAR|TEXT|CHAR|NVARCHAR)(\(\d+\))?/i, 'password_hash TEXT') + '  -- bcrypt / argon2id hash, never the password' }
-        : { language: lang, before: line, after: line.replace(/password["']?\s*[:=]\s*[^,}\n]+/i, 'passwordHash: await bcrypt.hash(password, 12)') }
+      return plaintextPasswordFix(f, line)
     case 'CM-D004':
-      return secretFix({ ...f, name: f.name ?? (line.includes('session(') ? 'SESSION_SECRET' : 'JWT_SECRET') }, line)
-    case 'CM-D005': {
-      if (/document\.cookie/.test(line)) {
-        return { language: lang, before: line, after: '// Don’t set auth cookies from the browser. Server side instead:\nres.cookie(\'admin_session\', token, { httpOnly: true, secure: true, sameSite: \'strict\', path: \'/\' })' }
-      }
-      if (isPython(f)) return { language: lang, before: line, after: line.replace(/\)\s*$/, ', httponly=True, secure=True, samesite="Lax")') }
-      const after = /\{/.test(line)
-        ? line.replace(/\{\s*/, '{ httpOnly: true, secure: true, sameSite: \'lax\', ')
-        : line.replace(/\)\s*;?\s*$/, ', { httpOnly: true, secure: true, sameSite: \'lax\' })')
-      return { language: lang, before: line, after }
-    }
+      return secretFix({ ...f, name: f.name ?? (line.includes('session(') ? 'SESSION_SECRET' : 'JWT_SECRET') }, line, content)
+    case 'CM-D005':
+      return cookieFix(f, line)
     case 'CM-D006': {
+      if (!isPython(f) && !isJs(f)) return example(f, line)
       const word = /`([^`]+)`/.exec(f.note ?? '')?.[1] ?? 'user'
-      const after = line.replace(new RegExp(`\\b${esc(word)}\\b(?![\\w'"])`), `redact(${word})`)
-      return { language: lang, before: line, after: `${isPython(f) ? REDACT_HELPER_PY : REDACT_HELPER_JS}\n\n${after}`, note: 'If you truly need the record on disk, encrypt it and give the file 0600 permissions.' }
+      const rewritten = line.replace(new RegExp(`\\b${esc(word)}\\b(?![\\w'"])`), `redact(${word})`)
+      return inPlace(f, line, withHelper(f, line, rewritten), [], 'If you truly need the record on disk, encrypt it and give the file 0600 permissions.')
     }
     case 'CM-D007':
-      if (/NODE_TLS_REJECT_UNAUTHORIZED/.test(line)) return { language: lang, before: line, after: '// Removed. Trust your internal CA explicitly instead:\n//   NODE_EXTRA_CA_CERTS=/etc/ssl/internal-ca.pem node server/index.js' }
-      if (/rejectUnauthorized/.test(line)) return { language: lang, before: line, after: line.replace(/rejectUnauthorized\s*:\s*false/, 'ca: fs.readFileSync(process.env.DB_CA_CERT_PATH)') }
-      if (/verify\s*=\s*False/.test(line)) return { language: lang, before: line, after: line.replace(/verify\s*=\s*False/, 'verify="/etc/ssl/certs/internal-ca.pem"') }
+      if (/NODE_TLS_REJECT_UNAUTHORIZED/.test(line)) return inPlace(f, line, `${indentOf(line)}// Removed. Trust your internal CA explicitly instead:\n${indentOf(line)}//   NODE_EXTRA_CA_CERTS=/etc/ssl/internal-ca.pem node server/index.js`)
+      if (/rejectUnauthorized/.test(line)) return inPlace(f, line, line.replace(/rejectUnauthorized\s*:\s*false/, 'ca: fs.readFileSync(process.env.DB_CA_CERT_PATH)'), [jsImport(content, 'fs', 'fs')])
+      if (/verify\s*=\s*False/.test(line)) return inPlace(f, line, line.replace(/verify\s*=\s*False/, 'verify="/etc/ssl/certs/internal-ca.pem"'))
       if (/curl/.test(line)) return { language: lang, before: line, after: line.replace(/\s(?:-k|--insecure)\b/, ' --cacert ./certs/internal-ca.pem') }
-      return { language: lang, before: line, after: '// Verify certificates; pin a CA bundle if you use a private CA.' }
+      if (/_create_unverified_context/.test(line)) return inPlace(f, line, line.replace(/ssl\._create_unverified_context\(/, 'ssl.create_default_context('))
+      if (/CERT_NONE|check_hostname/.test(line)) return inPlace(f, line, line.replace(/\bCERT_NONE\b/, 'CERT_REQUIRED').replace(/(\.check_hostname\s*=\s*)False\b/, '$1True'))
+      return example(f, line)
+    case 'CM-J004':
+    case 'CM-C004':
+      return corsFix(f, line)
+    case 'CM-A001': return example(f, line, 'Pass values as query parameters instead of formatting them into the SQL string.')
+    case 'CM-J003': return example(f, line, 'Use placeholders (? or $1) and pass the values array as the second argument.')
+    case 'CM-A002': return example(f, line, 'Build an argument list and run it with shell=False.')
+    case 'CM-J002': return example(f, line, 'Use execFile/spawn with an argument array and no shell.')
+    case 'CM-A008': return example(f, line, 'Escape request values with markupsafe.escape() or render a Jinja2 template.')
+    case 'CM-J006': return example(f, line, 'Escape request values before they are written into HTML.')
     default:
-      return secretFix(f, line)
+      if (CATALOG[f.ruleId]?.category === 'secrets') return secretFix(f, line, content)
+      return example(f, line)
   }
 }
 
-interface Entry { why: string; steps: string[] }
-
-const KB: Record<string, Entry> = {
-  'CM-S001': { why: 'Bots scrape public repos for AKIA keys within minutes of a push. With the matching secret, an attacker spins up GPU instances in every region and you find out from a five-figure bill, or they quietly copy your S3 buckets.', steps: ['Deactivate the key in IAM, then create a new one.', 'Load credentials from the environment or an IAM role, never from source.', 'Check CloudTrail for activity from this key ID since it was committed.'] },
-  'CM-S002': { why: 'The secret half of an AWS key pair is what actually signs requests. Anyone holding it can act as that IAM user: read databases, delete backups, or mine crypto on your account.', steps: ['Delete the access key in IAM and issue a new one.', 'Prefer short-lived credentials (SSO, instance roles) over long-lived keys.', 'Review CloudTrail for unfamiliar API calls.'] },
-  'CM-S003': { why: 'A GitHub token can clone private repos, push malicious commits, or edit CI workflows to steal more secrets. Supply-chain attacks often start with exactly one leaked token.', steps: ['Revoke the token under Settings → Developer settings.', 'Use fine-grained tokens with a single repo and an expiry.', 'Audit recent pushes and workflow changes.'] },
-  'CM-S004': { why: 'A live Stripe secret key can issue refunds to attacker-controlled cards, read customer billing details, and create charges. Stripe will freeze the account, but money that has already moved is gone.', steps: ['Roll the key in the Stripe dashboard (Developers → API keys).', 'Keep it server-side only, loaded from the environment.', 'Use restricted keys (rk_) with the minimum permissions.'] },
-  'CM-S005': { why: 'Leaked LLM keys get resold and drained fast: someone runs millions of tokens through your account overnight, and your usage limit is the only brake.', steps: ['Revoke the key in the provider dashboard.', 'Proxy LLM calls through your server; never ship keys to the browser.', 'Set a hard monthly spend limit.'] },
-  'CM-S006': { why: 'An Anthropic key lets anyone bill API usage to your organization and see whatever prompts they send under your name. Automated scanners look for the sk-ant- prefix specifically.', steps: ['Disable the key in the Anthropic Console and create a new one.', 'Read it from ANTHROPIC_API_KEY on the server.', 'Set workspace spend limits.'] },
-  'CM-S007': { why: 'Unrestricted Google API keys get abused for Maps, Places or Gemini calls billed to you. Firebase keys with loose rules can also expose your database.', steps: ['Restrict or regenerate the key in Google Cloud Console.', 'Apply HTTP referrer and API restrictions.', 'Move server-side keys to the environment.'] },
-  'CM-S008': { why: 'A Slack bot token can read every channel the bot is in and post messages as your app. That makes it a perfect phishing launchpad inside your own workspace.', steps: ['Revoke the token from the Slack app settings.', 'Reinstall the app to issue a fresh token.', 'Store it in your CI or host secret store.'] },
-  'CM-S009': { why: 'A private key is identity. With it an attacker can sign SAML assertions, impersonate your server over TLS, or SSH into machines that trust it, and nothing in the logs looks wrong.', steps: ['Generate a new key pair and replace the public key everywhere it’s trusted.', 'Load private keys from a secret manager or a mounted file outside the repo.', 'Revoke any certificates issued for the old key.'] },
-  'CM-S010': { why: 'A JWT is a bearer credential: whoever holds it is that user until it expires. Hardcoded tokens tend to be long-lived admin tokens, which turns a leak into instant admin access.', steps: ['Invalidate the token (rotate the signing key if you can’t revoke individually).', 'Obtain tokens at runtime through a real login flow.', 'Keep token lifetimes short.'] },
-  'CM-S011': { why: 'A connection string with the password inside gives direct database access, skipping your API and its auth checks. One leaked URL is a full dump of your users table.', steps: ['Change the database user’s password.', 'Read DATABASE_URL from the environment, with no fallback literal.', 'Restrict database network access to your app servers.'] },
-  'CM-S012': { why: 'A hardcoded Bearer token works for anyone who copies it. These usually end up in screenshots, gists and AI chat logs long before anyone notices.', steps: ['Revoke the token at its issuer.', 'Fetch tokens at runtime from a secret store or login flow.'] },
-  'CM-S013': { why: 'A committed .env file is every secret in your project gathered in one place. Even after you delete it, it lives on in git history and in every fork and clone.', steps: ['Stop tracking it: git rm --cached .env.', 'Add .env to .gitignore and commit a .env.example with blank values.', 'If it was ever pushed, purge history with git filter-repo and rotate everything in it.'] },
-  'CM-S014': { why: 'This value is high-entropy and assigned to a name like key, secret or password, which is the signature of a real credential. Attackers grep for exactly these patterns.', steps: ['Confirm what the value is; if it’s live, rotate it.', 'Move it to an environment variable or secret manager.', 'If it’s a test fixture, use an obvious placeholder.'] },
-  'CM-P001': { why: 'Real email addresses in source end up in public repos, AI training sets and spam lists. Under GDPR/CCPA they count as personal data, so a leak can be a reportable incident.', steps: ['Replace with reserved test domains (example.test).', 'Generate fixtures at test time instead of committing real people.'] },
-  'CM-P002': { why: 'Phone numbers enable SIM-swap and phishing attacks, and they’re regulated personal data. Fixtures copied from production are a common source of leaks.', steps: ['Use 555-01xx fictional numbers in fixtures.', 'Keep production data out of the repo.'] },
-  'CM-P003': { why: 'An SSN plus a name and date of birth is enough to open credit in someone’s name. Exposing one usually triggers breach-notification laws in most US states.', steps: ['Remove it and purge it from history.', 'Avoid storing SSNs at all; if you must, encrypt the field and limit access.', 'Use obviously invalid values (000-xx-xxxx) in tests.'] },
-  'CM-P004': { why: 'Storing card numbers puts your whole system in PCI DSS scope. A real PAN in code or logs is a reportable cardholder-data exposure.', steps: ['Delete it and use processor tokens (tok_visa) instead.', 'Never log or persist full card numbers.'] },
-  'CM-P005': { why: 'Date of birth is a classic identity-verification answer. Combined with a name or email it makes account-recovery attacks much easier.', steps: ['Use synthetic dates in fixtures.', 'Store age brackets instead of full DOB when you can.'] },
-  'CM-P006': { why: 'Logs get shipped to third-party services, kept for months, and read by far more people than your database. An email or SSN in a log line is a quiet, long-lived leak.', steps: ['Log IDs, not people: user.id instead of the user object.', 'Add a redaction helper and use it in every logger call.', 'Purge existing logs that contain personal data.'] },
-  'CM-P007': { why: 'Query strings land in server access logs, proxy logs, browser history and Referer headers sent to other sites. A password in a URL is effectively public.', steps: ['Send sensitive fields in a POST body over HTTPS.', 'Scrub query strings from existing logs.'] },
-  'CM-D001': { why: 'localStorage is readable by any script on the page. One XSS bug or one compromised npm package can read the token and replay it from anywhere, and it never expires on its own.', steps: ['Have the server set an HttpOnly, Secure, SameSite cookie.', 'Send requests with credentials: \'include\' instead of reading the token in JS.', 'Store only non-sensitive IDs client-side.'] },
-  'CM-D002': { why: 'MD5 and SHA-1 are fast by design, so a single GPU tests billions of guesses per second. If the users table leaks, most passwords are cracked the same afternoon and reused on other sites.', steps: ['Switch to bcrypt (cost 12+) or argon2id.', 'Re-hash on next login, and force a reset for accounts that don’t log in.', 'Never hash passwords with a general-purpose digest.'] },
-  'CM-D003': { why: 'Plaintext passwords mean one SQL injection or backup leak exposes every user’s password, and with it their accounts on other sites where they reused it.', steps: ['Store only a bcrypt/argon2id hash, in a column named for what it holds.', 'Migrate existing rows and force resets.'] },
-  'CM-D004': { why: 'Whoever knows the signing secret can mint a valid session for any user, including admins, without a password. Copy-pasted tutorial defaults are the first values attackers try.', steps: ['Generate a long random secret (openssl rand -base64 48) and keep it in the environment.', 'Rotate it, which logs everyone out.', 'Never fall back to a literal default.'] },
-  'CM-D005': { why: 'Without HttpOnly, any XSS can read the session cookie. Without Secure it travels over plain HTTP, and without SameSite it rides along on cross-site requests (CSRF).', steps: ['Set httpOnly: true, secure: true and sameSite: \'lax\' (or \'strict\').', 'Set auth cookies server-side only.'] },
-  'CM-D006': { why: 'Files on disk get backed up, synced and copied with far less care than your database. A plaintext dump of users or tokens is a breach waiting for one misconfigured bucket.', steps: ['Redact sensitive fields before writing.', 'Encrypt at rest and restrict file permissions.', 'Delete old dumps.'] },
-  'CM-D007': { why: 'Turning off certificate checks means anyone on the network path (coffee-shop Wi-Fi, a compromised router) can read and alter traffic, including database credentials and user data.', steps: ['Fix the certificate or trust your private CA explicitly.', 'Never ship verify=False / rejectUnauthorized: false to production.'] },
-  'CM-D008': { why: 'Without a .gitignore rule, the next "git add ." quietly commits every secret in .env. AI coding agents run that command constantly.', steps: ['Add .env and .env.* to .gitignore (with !.env.example).', 'Check git history for past commits of the file.'] },
-}
-
-export function adviceFor(f: Finding, fullLine?: string): Advice {
-  const entry = KB[f.ruleId] ?? { why: 'This pattern is commonly associated with security incidents.', steps: ['Review the code and remove the sensitive value.'] }
+/**
+ * Explanation, steps and fix for a finding. `fullLine` is the finding's masked source line and
+ * `content` the masked file, which lets context-dependent fixes (bcrypt + async) apply in place.
+ */
+export function adviceFor(f: Finding, fullLine?: string, content?: string): Advice {
+  const entry = CATALOG[f.ruleId] ?? { explanation: 'This pattern is commonly associated with security incidents.', steps: ['Review the code and remove the sensitive value.'], category: f.category }
   const line = (fullLine ?? f.snippet).replace(/\s+$/, '')
-  const steps = f.ruleId === 'CM-S013' ? [...entry.steps, ROTATE_STEP] : f.category === 'secrets' || f.ruleId === 'CM-D004' ? [ROTATE_STEP, ...entry.steps] : [...entry.steps]
-  return { why: entry.why, steps, fix: fixFor(f, line) }
+  const steps = f.ruleId === 'CM-S013' ? [...entry.steps, ROTATE_STEP] : entry.category === 'secrets' || f.ruleId === 'CM-D004' ? [ROTATE_STEP, ...entry.steps] : [...entry.steps]
+  return { why: entry.explanation, steps, fix: fixFor(f, line, content) }
 }

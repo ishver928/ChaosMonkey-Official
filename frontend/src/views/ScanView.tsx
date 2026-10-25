@@ -19,11 +19,12 @@ const CATEGORY_BLURB: Record<string, string> = {
   secrets: 'Cloud, payment, LLM and GitHub keys, private keys, JWTs, credentialed DB URLs, committed .env files, and high-entropy strings hiding behind names like token or secret.',
   pii: 'Emails, phone numbers, SSNs, Luhn-checked card numbers, dates of birth, plus personal data sneaking into logs or query strings.',
   storage: 'Tokens in localStorage, MD5/SHA-1 passwords, hardcoded session secrets, cookies without HttpOnly/Secure/SameSite, TLS checks switched off, unignored .env files.',
+  code: 'SQL and command injection, XSS, unsafe deserialization, broken ciphers and predictable tokens, debug mode and wide-open CORS.',
 }
 
 function skippedSummary(skipped: SkippedFile[]): string {
   const by = skipped.reduce<Record<string, number>>((acc, s) => ({ ...acc, [s.reason]: (acc[s.reason] ?? 0) + 1 }), {})
-  const label: Record<string, string> = { 'ignored-dir': 'in node_modules/.git/build', unsupported: 'unsupported type', 'too-large': 'over 1 MB', binary: 'binary' }
+  const label: Record<string, string> = { 'ignored-dir': 'in node_modules/.git/build', 'test-or-generated': 'tests/fixtures/vendor/minified/lockfiles', unsupported: 'unsupported type', 'too-large': 'over 1 MB', binary: 'binary' }
   return Object.entries(by).map(([k, n]) => `${n} ${label[k] ?? k}`).join(' · ')
 }
 
@@ -192,7 +193,7 @@ export function ScanView({ onScan, onDemo, progress, error, latest }: {
       <section className="mx-auto grid max-w-[1240px] gap-10 px-[3vw] py-14 lg:grid-cols-[.8fr_1.2fr]">
         <div>
           <p className="eyebrow">A short field guide</p>
-          <h2 className="mt-2 text-[clamp(32px,4vw,52px)]">Three kinds of chaos.</h2>
+          <h2 className="mt-2 text-[clamp(32px,4vw,52px)]">Four kinds of chaos.</h2>
           <p className="mt-4 max-w-sm text-[16px]">Clues, not verdicts. Every rule is listed on the <a href="#/rules" className="font-extrabold text-denim">Rules</a> page with exactly what it matches, and you can switch any of them off.</p>
         </div>
         <ul className="divide-y divide-[var(--color-rule)] border-y border-line">

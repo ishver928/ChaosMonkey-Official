@@ -1,6 +1,8 @@
 import type { DetectContext, RawMatch, Rule, RuleMeta, SourceFile } from './types'
-import { isPlaceholder, shannonEntropy } from './entropy'
+import { isEnvVarName, isPlaceholder, isTemplatePlaceholder, isWordIdentifier, shannonEntropy } from './entropy'
 import { baseName, isEnvFile, isEnvTemplate } from './language'
+import { catalogRule } from './catalog'
+import { CODE_DETECTORS, callEnd } from './codeRules'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -63,7 +65,11 @@ function codeParts(expr: string): string {
 
 const SECRET_NAME = /(api[_-]?key|apikey|secret|token|passw(?:or)?d|passwd|\bpwd\b|_pwd\b|passphrase|credential|private[_-]?key|access[_-]?key|auth[_-]?key|signing[_-]?key|encryption[_-]?key|client[_-]?secret|(?:^|[_.-])key$)/i
 const PASSWORD_NAME = /(passw(?:or)?d|passwd|pwd|passphrase)/i
-const PII_WORDS = /\b(users?|customers?|patients?|members?|email|e_?mail|ssn|social_?security|password|passwd|dob|birth\w*|phone\w*|card\w*|credit\w*|req\.body|request\.(?:body|json|form)|profile|account|address)\b/i
+const PII_WORDS = /\b(users?|customers?|patients?|members?|email|e_?mail|ssn|social_?security|password|passwd|dob|birth\w*|date_?of_?birth|full_?name|first_?name|last_?name|phone\w*|card\w*|credit\w*|req\.body|request\.(?:body|json|form)|profile|account|address)\b/i
+
+const STORAGE_KEY = /(token|jwt|auth|session|sess|password|passwd|pwd|secret|ssn|card|credit|api[_-]?key|apikey|refresh|bearer|cred|user(?![a-z])|user_?(?:data|info|profile|obj)|current_?user|profile|e_?mail|dob|birth|phone|address)/i
+// Value side of setItem("k", value): only clearly sensitive expressions.
+const STORAGE_VALUE = /\b(?:\w*token|jwt|password|passwd|ssn|dob|date_?of_?birth|email|user(?:Data|Info|Profile)?|currentUser|profile)\b/i
 
 function luhn(digits: string): boolean {
   let sum = 0
@@ -113,50 +119,50 @@ function coveredByGitignore(envPath: string, project: readonly SourceFile[]): { 
 // Rule registry
 // ---------------------------------------------------------------------------
 
-export const RULES: Rule[] = [
+const BASE_RULES: Rule[] = [
   // ----------------------------- Exposed secrets -----------------------------
   {
     id: 'CM-S001', title: 'AWS access key ID', category: 'secrets', severity: 'critical',
     description: 'AKIA/ASIA-prefixed AWS access key IDs. Paired with a secret key they grant API access to your cloud account.',
-    detect: (ctx) => regexHits(ctx.content, /\b((?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16})\b/gd, { group: 1, confidence: 0.95 }),
+    detect: (ctx) => regexHits(ctx.content, /\b((?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16})\b/gd, { group: 1, confidence: 0.95, filter: (v) => !isTemplatePlaceholder(v) }),
   },
   {
     id: 'CM-S002', title: 'AWS secret access key', category: 'secrets', severity: 'critical',
     description: '40-character AWS secret keys assigned to an aws…secret name in code, config or .env files.',
-    detect: (ctx) => regexHits(ctx.content, /(aws[\w.\-]{0,30}?secret[\w\-]*)["']?\s*[:=]\s*["']?([A-Za-z0-9/+=]{40})(?![A-Za-z0-9/+=])/gid, { group: 2, nameGroup: 1, confidence: 0.92 }),
+    detect: (ctx) => regexHits(ctx.content, /(aws[\w.\-]{0,30}?secret[\w\-]*)["']?\s*[:=]\s*["']?([A-Za-z0-9/+=]{40})(?![A-Za-z0-9/+=])/gid, { group: 2, nameGroup: 1, confidence: 0.92, filter: (v) => !isTemplatePlaceholder(v) }),
   },
   {
     id: 'CM-S003', title: 'GitHub token', category: 'secrets', severity: 'critical',
     description: 'Classic (ghp_, gho_, ghs_…) and fine-grained (github_pat_) GitHub tokens, which can read or push to your repositories.',
-    detect: (ctx) => regexHits(ctx.content, /\b((?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50,})\b/gd, { group: 1, confidence: 0.97 }),
+    detect: (ctx) => regexHits(ctx.content, /\b((?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{50,})\b/gd, { group: 1, confidence: 0.97, filter: (v) => !isTemplatePlaceholder(v) }),
   },
   {
     id: 'CM-S004', title: 'Stripe live key', category: 'secrets', severity: 'critical',
     description: 'Live-mode Stripe secret (sk_live_) and restricted (rk_live_) keys. These can move real money.',
-    detect: (ctx) => regexHits(ctx.content, /\b((?:sk|rk)_live_[0-9a-zA-Z]{16,})\b/gd, { group: 1, confidence: 0.97 }),
+    detect: (ctx) => regexHits(ctx.content, /\b((?:sk|rk)_live_[0-9a-zA-Z]{16,})\b/gd, { group: 1, confidence: 0.97, filter: (v) => !isTemplatePlaceholder(v) }),
   },
   {
     id: 'CM-S005', title: 'OpenAI-style API key', category: 'secrets', severity: 'high',
     description: 'sk-… and sk-proj-… keys used by OpenAI and compatible LLM APIs. Leaked keys get used to run up large bills within hours.',
     detect: (ctx) => regexHits(ctx.content, /(?<![\w-])(sk-(?!ant-)(?:proj-|svcacct-)?[A-Za-z0-9_\-]{20,})/gd, {
       group: 1, confidence: 0.85,
-      filter: (v) => v.length >= 24 && /\d/.test(v) && /[A-Za-z]/.test(v.slice(3)),
+      filter: (v) => v.length >= 24 && /\d/.test(v) && /[A-Za-z]/.test(v.slice(3)) && !isTemplatePlaceholder(v),
     }),
   },
   {
     id: 'CM-S006', title: 'Anthropic API key', category: 'secrets', severity: 'critical',
     description: 'sk-ant-… keys for the Anthropic API.',
-    detect: (ctx) => regexHits(ctx.content, /(?<![\w-])(sk-ant-[A-Za-z0-9_\-]{20,})/gd, { group: 1, confidence: 0.96 }),
+    detect: (ctx) => regexHits(ctx.content, /(?<![\w-])(sk-ant-[A-Za-z0-9_\-]{20,})/gd, { group: 1, confidence: 0.96, filter: (v) => !isTemplatePlaceholder(v) }),
   },
   {
     id: 'CM-S007', title: 'Google API key', category: 'secrets', severity: 'high',
     description: 'AIza-prefixed Google Cloud / Firebase / Maps API keys.',
-    detect: (ctx) => regexHits(ctx.content, /\b(AIza[0-9A-Za-z_\-]{35})(?![0-9A-Za-z_\-])/gd, { group: 1, confidence: 0.93 }),
+    detect: (ctx) => regexHits(ctx.content, /\b(AIza[0-9A-Za-z_\-]{35})(?![0-9A-Za-z_\-])/gd, { group: 1, confidence: 0.93, filter: (v) => !isTemplatePlaceholder(v) }),
   },
   {
     id: 'CM-S008', title: 'Slack token', category: 'secrets', severity: 'high',
     description: 'xoxb-/xoxp-/xoxa- Slack bot and user tokens that can read channels and post as your workspace.',
-    detect: (ctx) => regexHits(ctx.content, /\b(xox[abposr]-[A-Za-z0-9-]{10,})/gd, { group: 1, confidence: 0.92 }),
+    detect: (ctx) => regexHits(ctx.content, /\b(xox[abposr]-[A-Za-z0-9-]{10,})/gd, { group: 1, confidence: 0.92, filter: (v) => !isTemplatePlaceholder(v) }),
   },
   {
     id: 'CM-S009', title: 'Private key block', category: 'secrets', severity: 'critical',
@@ -166,7 +172,7 @@ export const RULES: Rule[] = [
   {
     id: 'CM-S010', title: 'JSON Web Token', category: 'secrets', severity: 'high',
     description: 'Hardcoded JWTs (eyJ….eyJ….sig). Anyone holding one can act as that session until it expires.',
-    detect: (ctx) => regexHits(ctx.content, /\b(eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})/gd, { group: 1, confidence: 0.88 }),
+    detect: (ctx) => regexHits(ctx.content, /\b(eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,})/gd, { group: 1, confidence: 0.88, filter: (v) => !isTemplatePlaceholder(v) }),
   },
   {
     id: 'CM-S011', title: 'Database URL with credentials', category: 'secrets', severity: 'critical',
@@ -209,6 +215,8 @@ export const RULES: Rule[] = [
       const consider = (name: string, value: string, start: number) => {
         if (!SECRET_NAME.test(name) || isPlaceholder(value) || value.includes('${')) return
         if (/^(?:https?:)?\/\//.test(value) || /^[./]/.test(value)) return
+        // Values that are env-var names or plain word identifiers are not secrets.
+        if (isEnvVarName(value) || isWordIdentifier(value)) return
         const isPassword = PASSWORD_NAME.test(name)
         const h = shannonEntropy(value)
         let confidence: number
@@ -217,6 +225,8 @@ export const RULES: Rule[] = [
           confidence = Math.min(0.9, 0.55 + h / 12)
         } else {
           if (value.length < 12 || h < 3.2) return
+          // Random secrets mix letters and digits; long ones are high-entropy anyway.
+          if (!(/\d/.test(value) && /[A-Za-z]/.test(value)) && !(value.length >= 32 && h >= 4.0)) return
           confidence = Math.max(0.45, Math.min(0.92, (h - 3) / 1.6))
         }
         out.push({ start, end: start + value.length, sensitive: true, confidence, name, note: isPassword ? 'hardcoded password' : `entropy ${h.toFixed(2)} bits/char` })
@@ -317,7 +327,9 @@ export const RULES: Rule[] = [
       const out: RawMatch[] = []
       for (const m of ctx.content.matchAll(re) as IterableIterator<RegExpExecArray>) {
         const key = m[2] ?? m[3] ?? m[4] ?? ''
-        if (!/(token|jwt|auth|session|sess|password|passwd|pwd|secret|ssn|card|credit|api[_-]?key|apikey|refresh|bearer|cred|user|profile)/i.test(key)) continue
+        const paren = ctx.content.indexOf('(', m.index)
+        const rest = m[2] !== undefined && paren >= 0 && paren < m.index! + m[0].length ? ctx.content.slice(m.index! + m[0].length, callEnd(ctx.content, paren)) : ''
+        if (!(STORAGE_KEY.test(key) || (m[2] !== undefined && STORAGE_VALUE.test(rest)))) continue
         const lineEnd = ctx.content.indexOf('\n', m.index)
         out.push({ start: m.index ?? 0, end: lineEnd < 0 ? ctx.content.length : lineEnd, sensitive: false, confidence: 0.85, name: key, note: `key "${key}"` })
       }
@@ -366,7 +378,7 @@ export const RULES: Rule[] = [
     detect: (ctx) => {
       if (!isCodeLanguage(ctx)) return []
       return [
-        ...regexHits(ctx.content, /\bjwt\.(?:sign|verify)\([^,\n]+,\s*(["'`])([^"'`\n]{4,})\1/gd, { group: 2, confidence: 0.9 }),
+        ...regexHits(ctx.content, /\bjwt\.(?:sign|verify|encode|decode)\([^,\n]+,\s*(["'`])([^"'`\n]{4,})\1/gd, { group: 2, confidence: 0.9 }),
         ...regexHits(ctx.content, /\b(jwt[_-]?secret|session[_-]?secret|cookie[_-]?secret|SECRET_KEY|secretOrKey|signing[_-]?secret|secret_key)["'\]]?\s*[:=]\s*(["'`])([^"'`\n]{4,})\2/gid, { group: 3, nameGroup: 1, confidence: 0.88 }),
         ...regexHits(ctx.content, /\bsession\(\s*\{[^}]*?\bsecret\s*:\s*(["'`])([^"'`\n]+)\1/gd, { group: 2, confidence: 0.9 }),
       ].filter((h) => !ctx.content.slice(h.start, h.end).includes('${'))
@@ -382,8 +394,7 @@ export const RULES: Rule[] = [
       const re = js ? /\b(?:res|response|ctx|reply)\.(?:cookie|setCookie)\s*\(/g : /\.set_cookie\s*\(/g
       for (const m of ctx.content.matchAll(re)) {
         const start = m.index ?? 0
-        const close = ctx.content.indexOf(js ? ');' : ')\n', start)
-        const end = close < 0 ? Math.min(ctx.content.length, start + 300) : close + 1
+        const end = callEnd(ctx.content, start + m[0].length - 1)
         const call = ctx.content.slice(start, end)
         const missing = [
           !(js ? /httpOnly\s*:\s*true/i : /httponly\s*=\s*True/).test(call) && 'HttpOnly',
@@ -421,7 +432,7 @@ export const RULES: Rule[] = [
   {
     id: 'CM-D007', title: 'TLS certificate verification disabled', category: 'storage', severity: 'high',
     description: 'rejectUnauthorized: false, verify=False, NODE_TLS_REJECT_UNAUTHORIZED=0, curl -k and similar. Data in transit can be intercepted.',
-    detect: (ctx) => regexHits(ctx.content, /rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED["']?\]?\s*[=:]\s*["']?0|\bverify\s*=\s*False\b|InsecureSkipVerify\s*:\s*true|ssl\._create_unverified_context|strictSSL\s*:\s*false|\bcurl\b[^\n]*\s(?:-k|--insecure)\b/gd, { sensitive: false, confidence: 0.9 }),
+    detect: (ctx) => regexHits(ctx.content, /rejectUnauthorized\s*:\s*false|NODE_TLS_REJECT_UNAUTHORIZED["']?\]?\s*[=:]\s*["']?0|\bverify\s*=\s*False\b|InsecureSkipVerify\s*:\s*true|ssl\._create_unverified_context|\bCERT_NONE\b|\.check_hostname\s*=\s*False\b|strictSSL\s*:\s*false|\bcurl\b[^\n]*\s(?:-k|--insecure)\b/gd, { sensitive: false, confidence: 0.9 }),
   },
   {
     id: 'CM-D008', title: '.env file not covered by .gitignore', category: 'storage', severity: 'high',
@@ -435,6 +446,15 @@ export const RULES: Rule[] = [
     },
   },
 ]
+
+/** Every rule: detection code from this file and codeRules.ts, metadata from rules/catalog.json. */
+export const RULES: Rule[] = [...BASE_RULES, ...CODE_DETECTORS].map((r) => {
+  const c = catalogRule(r.id)
+  return {
+    id: r.id, title: c.title, category: c.category, severity: c.severity, description: c.description,
+    generic: c.generic || undefined, cwe: c.cwe, supersededBy: c.superseded_by, detect: r.detect,
+  }
+})
 
 export const RULE_META: RuleMeta[] = RULES.map(({ detect: _detect, ...meta }) => meta)
 export const RULE_BY_ID: Record<string, RuleMeta> = Object.fromEntries(RULE_META.map((r) => [r.id, r]))

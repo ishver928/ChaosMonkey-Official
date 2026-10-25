@@ -178,6 +178,12 @@ export const db = {
       return rows[0]
     },
   },
+  todos: {
+    async search(userId, term) {
+      const { rows } = await pool.query(\`SELECT * FROM todos WHERE user_id = \${userId} AND title ILIKE '%\${term}%'\`)
+      return rows
+    },
+  },
 }
 `,
   },

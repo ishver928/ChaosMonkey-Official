@@ -15,7 +15,7 @@ export function LocalStatus({ compact = false }: { compact?: boolean }) {
       title="Every outbound request is checked by the offline guard. Click for details."
     >
       <span className={`inline-block h-2 w-2 rounded-full ${blocked ? 'bg-sev-high' : 'bg-sage-ink pulse-dot'}`} aria-hidden="true" />
-      <span>{compact ? 'Local only' : 'Local only · nothing leaves this device'}</span>
+      <span>{compact ? 'Local only' : 'Local only · non-local requests blocked'}</span>
       <span className="font-mono text-[11px] font-medium text-muted" aria-label={`${blocked} outbound requests blocked`}>{blocked} blocked</span>
     </a>
   )
