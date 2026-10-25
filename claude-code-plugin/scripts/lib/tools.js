@@ -9,7 +9,7 @@ const path = require('node:path')
 const project = require('./project')
 const { ensureBackend, uiServed } = require('./backend')
 const { openBrowser } = require('./browser')
-const { pickSummary, modeLabel, countsLine, redact } = require('./safe')
+const { pickSummary, pickFinding, safeLocation, modeLabel, countsLine, redact } = require('./safe')
 
 const SCAN_ID_RX = /^scan_[0-9a-f]{16}$/
 const MAX_LISTED = 20
@@ -89,6 +89,34 @@ function createTools({ client, open = openBrowser, ensure = ensureBackend, now =
     return lines.join('\n')
   }
 
+  function reviewText(r) {
+    const status = ['pending_review', 'rescanning', 'applying', 'applied', 'declined', 'error'].includes(r && r.status) ? r.status : 'unknown'
+    const lines = [`ChaosMonkey review for ${r.scan_id}: ${status}`]
+    if (status === 'pending_review') {
+      lines.push('The user has not applied or declined fixes yet. Do not wait in a loop; check again later or when the user says they are done.')
+      return lines.join('\n')
+    }
+    if (status === 'declined') {
+      lines.push('The user chose to keep the code as is. No files were changed.')
+      return lines.join('\n')
+    }
+    const applied = Array.isArray(r.applied) ? r.applied.map((e) => ({ ...pickFinding(e), result: ['fix_verified', 'fix_failed', 'pending', 'unknown'].includes(e.result) ? e.result : 'unknown' })) : []
+    const skipped = Array.isArray(r.skipped) ? r.skipped.map(pickFinding).filter(Boolean) : []
+    const files = Array.isArray(r.files_changed) ? r.files_changed.filter((f) => typeof f === 'string').map((f) => safeLocation(`${f}:0`).replace(/:0$/, '')) : []
+    lines.push(`Applied ${applied.length} user-approved fix(es) to: ${files.join(', ') || 'none'}.`)
+    if (typeof r.backup_dir === 'string' && /^[\w./-]+$/.test(r.backup_dir)) lines.push(`Originals backed up in ${r.backup_dir}.`)
+    for (const e of applied) lines.push(`- ${e.result}: [${e.severity}] ${e.title}${e.cwe_id ? ` (${e.cwe_id})` : ''} at ${e.location}`)
+    for (const e of skipped) lines.push(`- skipped (no verified fix): [${e.severity}] ${e.title} at ${e.location}`)
+    if (r.rescan && typeof r.rescan === 'object') {
+      lines.push(`Re-scan ${/^scan_[0-9a-f]{16}$/.test(r.rescan_scan_id) ? r.rescan_scan_id : ''}: security score ${Math.trunc(Number(r.rescan.security_score) || 0)}/100, ${Math.trunc(Number(r.rescan.total_findings) || 0)} finding(s) remaining.`)
+    }
+    if (status === 'rescanning' || status === 'applying') lines.push('Re-scan in progress; check again in a few seconds.')
+    if (status === 'error') lines.push('The re-scan did not finish, so these fixes are applied but unverified.')
+    if (applied.some((e) => e.result === 'fix_failed')) lines.push('fix_failed means the re-scan still reports that issue at the patched lines; it needs a manual fix.')
+    lines.push('These changes were made by ChaosMonkey on the user\'s explicit approval. Re-read the changed files before editing them further.')
+    return lines.join('\n')
+  }
+
   const handlers = {
     async chaosmonkey_enable({ project_path }) {
       const root = resolveProject(project_path)
@@ -147,6 +175,23 @@ function createTools({ client, open = openBrowser, ensure = ensureBackend, now =
       return summaryText(data, data.project_path, null)
     },
 
+    async chaosmonkey_review_status({ scan_id }) {
+      const review = await client.get(`/api/plugin/review/${checkScanId(scan_id)}`)
+      const text = reviewText(review)
+      if (review && review.status === 'applied') {
+        // ChaosMonkey's own writes are not "new code": don't let the Stop hook prompt for them.
+        try {
+          const info = await client.get(`/api/plugin/scan/${scan_id}/summary`)
+          if (info.project_path && project.isEnabled(info.project_path)) {
+            project.writeState(info.project_path, { last_scan_fingerprint: project.fingerprint(info.project_path).hash, last_applied_scan_id: scan_id })
+          }
+        } catch {
+          // best effort
+        }
+      }
+      return text
+    },
+
     async chaosmonkey_decline_batch({ project_path }) {
       const root = resolveProject(project_path)
       const fp = project.fingerprint(root)
@@ -197,6 +242,11 @@ const TOOL_DEFS = [
   {
     name: 'chaosmonkey_status',
     description: 'Get the status and masked summary of a ChaosMonkey scan.',
+    inputSchema: SCAN_ARG,
+  },
+  {
+    name: 'chaosmonkey_review_status',
+    description: 'Check (once, non-blocking) what the user did in the ChaosMonkey UI for a scan: pending_review, declined, or which approved fixes were applied and whether each was verified by a re-scan. Metadata only.',
     inputSchema: SCAN_ARG,
   },
   {

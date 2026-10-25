@@ -197,3 +197,39 @@ test('MCP protocol: initialize, tools/list, tools/call, unknown method', async (
     await mock.close()
   }
 })
+
+test('review_status: pending, declined and applied are reported as metadata only', async () => {
+  const { mock, tools } = await setup()
+  try {
+    mock.state.review = { scan_id: SCAN_ID, status: 'pending_review', applied: [], skipped: [] }
+    assert.match(await tools.call('chaosmonkey_review_status', { scan_id: SCAN_ID }), /pending_review[\s\S]*Do not wait in a loop/)
+    mock.state.review = { scan_id: SCAN_ID, status: 'declined', applied: [] }
+    assert.match(await tools.call('chaosmonkey_review_status', { scan_id: SCAN_ID }), /keep the code as is/)
+    mock.state.review = {
+      scan_id: SCAN_ID,
+      status: 'applied',
+      files_changed: ['app.py'],
+      backup_dir: '.chaosmonkey/backups/20261024T120000Z',
+      rescan_scan_id: 'scan_fedcba9876543210',
+      rescan: { security_score: 80, total_findings: 5 },
+      applied: [
+        { id: 'abc123abc123', rule_id: 'CM-S005', cwe_id: 'CWE-798', title: 'Hard-coded API key', severity: 'critical', location: 'app.py:24', result: 'fix_verified', fix_diff: `-KEY = "${CANARY}"` },
+        { id: 'def456def456', rule_id: 'CM-A001', cwe_id: 'CWE-89', title: 'SQL built from string formatting', severity: 'critical', location: 'app.py:72', result: 'fix_failed' },
+      ],
+      skipped: [],
+    }
+    const text = await tools.call('chaosmonkey_review_status', { scan_id: SCAN_ID })
+    assert.match(text, /: applied/)
+    assert.match(text, /fix_verified: \[critical\] Hard-coded API key \(CWE-798\) at app\.py:24/)
+    assert.match(text, /fix_failed: \[critical\] SQL built/)
+    assert.match(text, /backups\/20261024T120000Z/)
+    assert.match(text, /security score 80\/100/)
+    assert.ok(!text.includes(CANARY) && !text.includes('DEMOCANARY'))
+  } finally {
+    await mock.close()
+  }
+})
+
+test('there is no MCP tool that applies fixes', () => {
+  assert.ok(!TOOL_DEFS.some((t) => /apply|approve|write|fix/i.test(t.name)))
+})
