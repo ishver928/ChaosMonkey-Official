@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, ShieldCheck, XCircle } from 'lucide-react'
 import { EmptyState, MonkeySwing } from '@/components/Brand'
 import { SeverityIcon, SEV_VAR } from '@/components/Severity'
-import { getJson, MODE_LABEL, type BackendFinding, type BackendScan, type BackendSeverity, type PluginProject } from '@/lib/plugin'
+import { ReviewPanel } from '@/components/ReviewPanel'
+import { getJson, postPlugin, MODE_LABEL, type BackendFinding, type BackendScan, type BackendSeverity, type PluginProject, type Review, type ScanLink } from '@/lib/plugin'
 
 const SEV_ORDER: BackendSeverity[] = ['critical', 'high', 'medium', 'low', 'info']
 const SEV_TEXT: Record<BackendSeverity, string> = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low', info: 'Info' }
@@ -31,7 +32,7 @@ function Check({ ok, label }: { ok: boolean; label: string }) {
   )
 }
 
-export function FindingCard({ f, children }: { f: BackendFinding; children?: React.ReactNode }) {
+export function FindingCard({ f, actions, children }: { f: BackendFinding; actions?: React.ReactNode; children?: React.ReactNode }) {
   const sev = uiSev(f.severity)
   return (
     <article className="card p-5" aria-label={`${SEV_TEXT[f.severity]}: ${f.title}`}>
@@ -43,7 +44,7 @@ export function FindingCard({ f, children }: { f: BackendFinding; children?: Rea
             {SEV_TEXT[f.severity]} · {f.file}:{f.line}{f.cwe_id ? ` · ${f.cwe_id}` : ''}{f.ruleId ? ` · ${f.ruleId}` : ''} · source: {f.source}
           </p>
         </div>
-        {children}
+        {actions}
       </div>
       {f.snippet && <pre className="code mt-3 overflow-x-auto rounded-md border border-[var(--color-rule)] p-3 text-[12.5px]">{f.snippet}</pre>}
       {f.explanation && <p className="mt-3 text-[14px]">{f.explanation}</p>}
@@ -54,6 +55,7 @@ export function FindingCard({ f, children }: { f: BackendFinding; children?: Rea
         <Check ok={f.validation.cwe_pattern_match} label="CWE pattern match" />
         <Check ok={f.validation.confirmed_by_detector || f.source !== 'llm'} label="detector-confirmed" />
       </div>
+      {children}
     </article>
   )
 }
@@ -83,10 +85,78 @@ export function useBackendScan(scanId: string): { scan: BackendScan | null; erro
 }
 
 /** Report for a scan run by the backend (deep link #/report/<scan_id>, used by the Claude Code plugin). */
-export function BackendReportView({ scanId, project }: { scanId: string; project: PluginProject | null }) {
+function useReview(scanId: string, ready: boolean) {
+  const [review, setReview] = useState<Review | null>(null)
+  const [link, setLink] = useState<ScanLink | null>(null)
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (!ready) return
+    getJson<ScanLink>(`/api/plugin/scan/${scanId}/summary`).then(setLink).catch(() => setLink({ project_path: null }))
+  }, [scanId, ready])
+  useEffect(() => {
+    if (!ready) return
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const poll = async () => {
+      try {
+        const r = await getJson<Review>(`/api/plugin/review/${scanId}`)
+        if (cancelled) return
+        setReview(r)
+        if (r.status === 'applying' || r.status === 'rescanning') timer = setTimeout(poll, 800)
+      } catch {
+        // backend without plugin routes: review features stay hidden
+      }
+    }
+    void poll()
+    return () => { cancelled = true; if (timer) clearTimeout(timer) }
+  }, [scanId, ready, tick])
+  return { review, projectPath: link?.project_path ?? null, refresh: () => setTick((t) => t + 1) }
+}
+
+export function BackendReportView({ scanId, project }: { scanId: string; project: PluginProject | null | undefined }) {
   const { scan, error } = useBackendScan(scanId)
   const report = scan?.report ?? null
   const findings = useMemo(() => report?.findings ?? [], [report])
+  const { review, projectPath, refresh } = useReview(scanId, scan?.status === 'done')
+  const [approved, setApproved] = useState<Set<string>>(() => new Set())
+  const [openDiffs, setOpenDiffs] = useState<Set<string>>(() => new Set())
+  const [busy, setBusy] = useState(false)
+  const [applyError, setApplyError] = useState<string | null>(null)
+  const pending = !review || review.status === 'pending_review'
+  const applicable = (f: BackendFinding) => f.fix_verified && !!f.fix_diff
+
+  const toggleIn = (set: Set<string>, id: string) => {
+    const next = new Set(set)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    return next
+  }
+
+  const apply = async () => {
+    setBusy(true)
+    setApplyError(null)
+    try {
+      await postPlugin(`/api/plugin/scan/${scanId}/apply`, { finding_ids: findings.filter((f) => approved.has(f.id)).map((f) => f.id) }, 60_000)
+      refresh()
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : 'Applying fixes failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const decline = async () => {
+    setBusy(true)
+    setApplyError(null)
+    try {
+      await postPlugin(`/api/plugin/scan/${scanId}/decision`, { decision: 'declined' })
+      refresh()
+    } catch (err) {
+      setApplyError(err instanceof Error ? err.message : 'Could not record your decision.')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (error) {
     return <div className="mx-auto max-w-[1240px] px-[4vw] py-24"><EmptyState title="Report not found." body={error} action={<a href="#/scan" className="btn btn-primary">New scan</a>} /></div>
@@ -141,14 +211,48 @@ export function BackendReportView({ scanId, project }: { scanId: string; project
       {findings.length === 0 ? (
         <div className="card card-shadow mt-8"><EmptyState title="Nothing to shake loose." body="No issues found in this project." /></div>
       ) : (
-        <div className="mt-8 space-y-4">
-          {findings.map((f) => (
-            <FindingCard key={f.id} f={f}>
-              {f.fix_diff ? (
-                <span className={`font-mono text-[11.5px] font-bold ${f.fix_verified ? 'text-sage-ink' : 'text-muted'}`}>{f.fix_verified ? 'verified fix' : 'unverified fix'}</span>
-              ) : <span className="font-mono text-[11.5px] text-muted">manual fix</span>}
-            </FindingCard>
-          ))}
+        <div className="mt-8 grid items-start gap-6 lg:grid-cols-[1fr_360px]">
+          <div className="space-y-4">
+            {findings.map((f) => (
+              <FindingCard key={f.id} f={f} actions={
+                <div className="flex flex-col items-end gap-1.5">
+                  {applicable(f) ? (
+                    <label className={`inline-flex cursor-pointer items-center gap-2 rounded-md border-[1.5px] px-2.5 py-1 text-[13px] font-extrabold ${approved.has(f.id) ? 'border-line bg-butter text-strong' : 'border-[var(--color-rule)]'}`}>
+                      <input type="checkbox" className="accent-[var(--color-denim)]" checked={approved.has(f.id)} disabled={!pending || !projectPath} onChange={() => setApproved((s) => toggleIn(s, f.id))} />
+                      Approve fix
+                    </label>
+                  ) : (
+                    <span className="font-mono text-[11.5px] text-muted" title="Only fixes the backend verified (re-parse + re-scan) can be applied automatically.">
+                      {f.fix_diff ? 'unverified fix: apply by hand' : 'manual fix'}
+                    </span>
+                  )}
+                  {f.fix_diff && (
+                    <button type="button" className="font-mono text-[11.5px] font-bold text-denim underline" aria-expanded={openDiffs.has(f.id)} onClick={() => setOpenDiffs((s) => toggleIn(s, f.id))}>
+                      {openDiffs.has(f.id) ? 'Hide diff' : 'Show diff'}
+                    </button>
+                  )}
+                </div>
+              }>
+                {f.fix_diff && openDiffs.has(f.id) && (
+                  <div className="mt-3 w-full">
+                    <p className="mb-1 font-mono text-[11px] text-muted">{f.fix_verified ? 'Verified: patched copy re-parsed and re-scanned clean.' : 'Not verified by the backend.'} Values are masked.</p>
+                    <UnifiedDiff diff={f.fix_diff} />
+                  </div>
+                )}
+              </FindingCard>
+            ))}
+          </div>
+          <div className="lg:sticky lg:top-4">
+            <ReviewPanel
+              approvedCount={approved.size}
+              projectPath={projectPath}
+              review={review}
+              busy={busy}
+              error={applyError}
+              onApply={() => void apply()}
+              onDecline={() => void decline()}
+            />
+          </div>
         </div>
       )}
     </div>

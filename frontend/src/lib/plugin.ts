@@ -75,7 +75,34 @@ export interface Health {
   kb_size: number
 }
 
-const CLIENT_HEADER = { 'X-ChaosMonkey-Client': 'chaosmonkey-ui' }
+export type ReviewState = 'pending_review' | 'applying' | 'rescanning' | 'applied' | 'declined' | 'error'
+
+export interface ReviewEntry {
+  id: string
+  title: string
+  severity: BackendSeverity
+  location: string
+  result?: 'fix_verified' | 'fix_failed' | 'pending' | 'unknown'
+  reason?: string
+}
+
+export interface Review {
+  scan_id: string
+  status: ReviewState
+  applied: ReviewEntry[]
+  skipped: ReviewEntry[]
+  files_changed: string[]
+  backup_dir: string | null
+  rescan_scan_id: string | null
+  rescan?: { security_score: number; total_findings: number }
+  error?: string
+}
+
+export interface ScanLink {
+  project_path: string | null
+}
+
+const CLIENT_HEADER ={ 'X-ChaosMonkey-Client': 'chaosmonkey-ui' }
 const ROUTE_RX = /^\/(connected|scan|report|report\/scan_[0-9a-f]{16})$/
 
 export function isPluginRoute(route: string): boolean {
@@ -126,9 +153,9 @@ export function consumeOpenParam(): void {
   window.history.replaceState(null, '', `${window.location.pathname}${qs ? `?${qs}` : ''}${window.location.hash}`)
 }
 
-/** Connected-project state + the one-tab heartbeat/navigate wiring. Null = no plugin backend. */
-export function usePluginConnection(): PluginProject | null {
-  const [project, setProject] = useState<PluginProject | null>(null)
+/** Connected-project state + the one-tab heartbeat/navigate wiring. undefined = still checking, null = no plugin backend. */
+export function usePluginConnection(): PluginProject | null | undefined {
+  const [project, setProject] = useState<PluginProject | null | undefined>(undefined)
 
   useEffect(() => {
     let cancelled = false
@@ -141,6 +168,7 @@ export function usePluginConnection(): PluginProject | null {
         if (!cancelled) setProject(p)
         return p
       } catch {
+        if (!cancelled) setProject((cur) => cur ?? null)
         return null
       }
     }

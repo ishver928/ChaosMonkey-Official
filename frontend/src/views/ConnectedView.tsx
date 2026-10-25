@@ -4,12 +4,16 @@ import { MonkeySwing, EmptyState } from '@/components/Brand'
 import { getJson, MODE_LABEL, type Health, type PluginProject } from '@/lib/plugin'
 
 /** Landing view when Claude Code enables ChaosMonkey: which project, privacy, what happens next. */
-export function ConnectedView({ project }: { project: PluginProject | null }) {
+export function ConnectedView({ project }: { project: PluginProject | null | undefined }) {
   const [health, setHealth] = useState<Health | null>(null)
 
   useEffect(() => {
     getJson<Health>('/api/health').then(setHealth).catch(() => setHealth(null))
   }, [project?.project_path])
+
+  if (project === undefined) {
+    return <div className="mx-auto flex max-w-[1240px] justify-center px-[4vw] py-24"><MonkeySwing size={110} label="Connecting to ChaosMonkey" /></div>
+  }
 
   if (!project?.connected || !project.project_path) {
     return (

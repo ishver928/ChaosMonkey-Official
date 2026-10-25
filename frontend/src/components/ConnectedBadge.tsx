@@ -2,7 +2,7 @@ import { Link2 } from 'lucide-react'
 import { basename, type PluginProject } from '@/lib/plugin'
 
 /** Small header badge shown only while a project is connected from Claude Code. */
-export function ConnectedBadge({ project }: { project: PluginProject | null }) {
+export function ConnectedBadge({ project }: { project: PluginProject | null | undefined }) {
   if (!project?.connected || !project.project_path) return null
   return (
     <a
