@@ -21,6 +21,7 @@ Built at Cal Hacks 13.0.
 | [`demo/`](demo/) | 3 deliberately vulnerable apps (vulnerable + patched) and the attack simulator. |
 | [`data/`](data/) | `cwe_seed.json` — the grounded CWE knowledge base (32 entries). |
 | [`scripts/`](scripts/) | `setup.sh`, `run.sh`, `build_cwe_seed.py`, `ingest_cwe.py`. |
+| [`claude-code-plugin/`](claude-code-plugin/) | Claude Code plugin: offers a scan after Claude changes code, opens the report in the local UI, and applies only the fixes you approve. |
 
 See [`API.md`](API.md) for the full endpoint contract.
 

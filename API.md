@@ -169,3 +169,29 @@ Docker isn't installed/running, `status` is `docker_unavailable` and every reque
 - Only fake canary secrets/data are used; "stolen" data is shown masked or as obvious canaries.
 - No real exploit tooling or network scanning.
 - Demo app subprocesses are time-limited and killed on exit.
+
+## Claude Code plugin (additive)
+
+Used by [`claude-code-plugin/`](claude-code-plugin/README.md). Nothing above changed. All of these
+routes refuse requests whose `Host` header isn't loopback. Routes that change state also need an
+`X-ChaosMonkey-Client` header, which forces a CORS preflight. Everything returned to the MCP
+server is metadata only: no code, snippets, evidence or values.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/api/plugin/connect` · `/api/plugin/disconnect` | `{ "project_path": "<abs dir>" }`: connect (or disconnect) the project shown in the UI. |
+| GET | `/api/plugin/project` | `{ connected, project_path, ui_alive, mode, llm_mode, model }` |
+| POST | `/api/plugin/heartbeat` | Sent by the UI tab every 5 s. |
+| GET | `/api/plugin/ui-status` | `{ ui_alive, subscribers, seconds_since_heartbeat }` |
+| GET | `/api/plugin/events` | SSE for the UI: `navigate` (`{ "route": "/report/scan_…" }`) and `project` events. An open stream counts as a live tab. |
+| POST | `/api/plugin/navigate` | `{ "route": "/connected" \| "/report/scan_…" }` → `{ delivered, ui_alive }`. Only these routes are accepted. |
+| POST | `/api/plugin/link` | `{ scan_id, project_path }`: ties a `POST /api/scan` (path) scan to a connected project. |
+| GET | `/api/plugin/scan/{id}/summary` | Status + metadata-only summary: score, counts, and per finding `rule_id`, `cwe_id`, static `title`, `severity`, `location` (file:line), `source`, `fix_available`, `fix_verified`. |
+| POST | `/api/plugin/scan/{id}/apply` | `{ "finding_ids": [...] }`. Writes **only approved, backend-verified** fixes to the linked project, after confinement checks, a stale-file check, and a backup to `.chaosmonkey/backups/<timestamp>`. Then re-scans. Needs the UI page's `Origin`. |
+| POST | `/api/plugin/scan/{id}/decision` | `{ "decision": "declined" }`: the user kept the code as is. |
+| GET | `/api/plugin/review/{id}` | `pending_review \| rescanning \| applied \| declined \| error` plus per-fix `fix_verified` / `fix_failed`, `files_changed`, `backup_dir`, `rescan_scan_id`. |
+
+`GET /` still returns the JSON status to API clients. A browser navigation (`Accept: text/html`)
+gets the built UI from `frontend/dist`, when it exists, so the UI and API share
+`http://127.0.0.1:8000`. Project-path ingestion now also skips `.chaosmonkey/`, the plugin's own
+state and backups.
