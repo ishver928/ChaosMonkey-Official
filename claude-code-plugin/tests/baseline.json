@@ -1,0 +1,50 @@
+{
+  "demo_findings": 12,
+  "demo_report_hash": "3021e7ceca98a327",
+  "determinism": [
+    {
+      "finding_ids_run1": [
+        "dc895e53a9c7",
+        "b028a9a0dd6c",
+        "30b73623b3ed"
+      ],
+      "hash_run1": "e326648926776a0b",
+      "hash_run2": "e326648926776a0b",
+      "identical": true
+    },
+    {
+      "finding_ids_run1": [
+        "dc895e53a9c7",
+        "b028a9a0dd6c",
+        "30b73623b3ed"
+      ],
+      "hash_run1": "e326648926776a0b",
+      "hash_run2": "e326648926776a0b",
+      "identical": true
+    }
+  ],
+  "health": {
+    "data_leaves_machine": false,
+    "embed_backend": "tfidf",
+    "kb_size": 32,
+    "llm": {
+      "available": true,
+      "detail": "LLM_MOCK=1 \u2014 recorded responses",
+      "mode": "mock",
+      "model": "qwen2.5-coder:7b-instruct"
+    },
+    "mode": "mock",
+    "privacy_attestation": {
+      "analysis_location": "local-machine",
+      "endpoints": [
+        "http://127.0.0.1:11434"
+      ],
+      "model": "qwen2.5-coder:7b-instruct",
+      "seed": 42
+    },
+    "privacy_ok": true,
+    "problems": [],
+    "status": "ok",
+    "version": "1.0.0"
+  }
+}
