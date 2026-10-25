@@ -1,0 +1,11 @@
+{
+  "name": "chaosmonkey-claude-code-plugin",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ChaosMonkey Claude Code plugin: MCP server + hooks. No runtime dependencies.",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "smoke": "node scripts/smoke-test.js"
+  }
+}

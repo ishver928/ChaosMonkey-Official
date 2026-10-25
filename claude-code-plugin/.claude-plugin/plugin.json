@@ -1,0 +1,9 @@
+{
+  "name": "chaosmonkey",
+  "displayName": "ChaosMonkey",
+  "version": "0.1.0",
+  "description": "Local-only security checkpoint for AI-generated code: scans your project for exposed secrets, PII and vulnerabilities, shows a grounded report in a local UI, and applies only the fixes you approve.",
+  "author": { "name": "ChaosMonkey team (Cal Hacks 13.0)" },
+  "license": "MIT",
+  "keywords": ["security", "secrets", "pii", "local", "cwe"]
+}
