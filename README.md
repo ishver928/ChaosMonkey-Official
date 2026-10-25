@@ -12,6 +12,46 @@ binds to `127.0.0.1` and refuses to start if any configured endpoint is non-loca
 
 Built at Cal Hacks 13.0.
 
+## What it does
+
+Point ChaosMonkey at a project folder, pasted code or a zip. It reports:
+
+- **Exposed secrets**: API keys (OpenAI, Stripe, AWS, GitHub, …), private keys, passwords and
+  tokens hard-coded in source or committed `.env` files.
+- **Personal data (PII)**: emails, phone numbers, SSNs and card numbers in code, seed data and
+  logs.
+- **Vulnerabilities**: SQL injection, command injection, XSS, path traversal, `eval`, weak
+  password hashing, disabled TLS checks, debug mode left on, wildcard CORS, unsafe browser
+  storage and more.
+
+Each finding comes with:
+
+- the exact file and line, with secret values **masked** (`sk-••••••••a91f`);
+- the CWE it maps to, plus a plain-English explanation and a realistic attack scenario;
+- a deterministic severity and an overall 0–100 security score;
+- a suggested fix as a diff. The fix is marked **verified** only after ChaosMonkey applied it to
+  a copy, confirmed the file still parses, and re-scanned to confirm the issue is gone.
+
+You can export the report as Markdown, JSON, HTML or SARIF. With the
+[Claude Code plugin](claude-code-plugin/README.md), ChaosMonkey also checks the code an AI
+agent just wrote. You then approve fixes in a browser and they're applied to your project.
+
+## Why not just ask an AI to review my code?
+
+You can paste code into a chatbot and ask "is this secure?". ChaosMonkey is built to be more
+reliable than that, in specific ways:
+
+| Asking an AI assistant | ChaosMonkey |
+| --- | --- |
+| **Different answer each time.** Run the same prompt twice and you can get different findings. | **Deterministic.** Same code, same report, byte for byte (fixed seed, temperature 0, cached results, stable finding ids). `GET /api/determinism-check` proves it. |
+| **Can invent problems or miss real ones.** It only reports what the model happens to notice. | **Rule-based detectors run every time.** Regex, Python AST and JS rules run without any AI. If a local model is used, each finding must quote code that exists **verbatim** in your file and match a known CWE pattern, or it's thrown away. |
+| **Your code, and the secrets in it, go to a cloud service.** Asking "do I have leaked keys?" sends the keys too. | **Nothing leaves your machine.** The server only talks to `127.0.0.1` and refuses to start otherwise. Secret values are masked before they're shown, logged, exported, or handed to Claude Code. |
+| **Fixes are suggestions you have to trust.** | **Fixes are checked.** Each patch is re-parsed and re-scanned before it's marked verified. With the plugin, applied fixes are backed up first and verified again on the real project. |
+| **Works only when a model is available.** | **Works with no AI at all.** Without Ollama it runs in detector-only mode. The UI always shows which mode ran. |
+
+ChaosMonkey isn't a replacement for a security audit. See [Limitations](#limitations-honest).
+It's a fast, repeatable checkpoint to run before AI-written code ships.
+
 ## Repository layout
 
 | Folder | What's in it |
@@ -56,25 +96,93 @@ flowchart TD
   end
 ```
 
-## Quick start
+## Get started
 
-### Backend
+### 1. Download
+
 ```bash
-scripts/setup.sh            # venv + deps + CWE knowledge base (+ Ollama models if installed)
-scripts/run.sh             # http://127.0.0.1:8000
-# fully offline, no Ollama required:
-LLM_MOCK=1 scripts/run.sh
+git clone https://github.com/ishver928/ChaosMonkey-Official.git
+cd ChaosMonkey-Official
 ```
 
-### Frontend
+No Git? On the GitHub page, click **Code → Download ZIP**, unzip it, and open a terminal in
+the unzipped folder.
+
+### 2. Install the prerequisites
+
+| Tool | Needed for | Get it |
+| --- | --- | --- |
+| **Node.js 18+** | the web UI (and the Claude Code plugin) | https://nodejs.org |
+| **Python 3.11+** | the analysis backend | https://python.org (Windows: tick "Add python.exe to PATH") |
+| Git | cloning, and the Claude Code plugin's marketplace step | https://git-scm.com |
+| Ollama *(optional)* | full mode with a local AI model | https://ollama.com, then `ollama pull qwen2.5-coder:7b-instruct` |
+| Docker *(optional)* | the sandbox "is this really exploitable?" check | https://docker.com |
+
+Without Ollama everything still works in detector-only mode.
+
+### 3. Pick how you want to use it
+
+#### Option A: just the browser app (fastest, no Python)
+
 ```bash
 cd frontend
 npm install
-npm run dev                # http://127.0.0.1:5173  (proxies /api to the backend)
+npm run dev          # opens http://127.0.0.1:5173
 ```
 
-The frontend works standalone (in-browser scanner). With the backend running it can also use
-the richer pipeline and the demo engine; if the backend is off it falls back silently.
+Drop in a folder or paste code, or click **Load demo project**. Scanning runs entirely inside
+your browser tab.
+
+#### Option B: the full app (backend pipeline + UI on one port)
+
+macOS / Linux:
+
+```bash
+scripts/setup.sh                                   # creates backend/.venv and installs dependencies
+(cd frontend && npm install && npm run build)      # builds the UI the backend serves
+scripts/run.sh                                     # http://127.0.0.1:8000
+```
+
+Windows (PowerShell):
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+cd ..\frontend
+npm install
+npm run build
+cd ..\backend
+.\.venv\Scripts\python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Open **http://127.0.0.1:8000** in your browser. To check that it's private, open
+`http://127.0.0.1:8000/api/health` and look for `"data_leaves_machine": false`. For a fully
+offline demo with recorded model answers, start it with `LLM_MOCK=1` (PowerShell:
+`$env:LLM_MOCK="1"` first).
+
+#### Option C: inside Claude Code (checks the code your AI agent writes)
+
+Do the setup from Option B, minus starting the server (the plugin starts it for you). Then,
+from the repo root:
+
+```bash
+node claude-code-plugin/scripts/register-home.js
+claude plugin marketplace add ./claude-code-plugin
+claude plugin install chaosmonkey@chaosmonkey-local
+```
+
+Open Claude Code in any project and run **`/chaosmonkey:enable`**. The ChaosMonkey UI opens in
+your browser. From then on, whenever Claude finishes changing your code, it asks **"Run
+ChaosMonkey security analysis? (Y/N)"**. Say yes and the report appears in that tab. Tick the
+fixes you want, click **Apply approved fixes to my project**, and Claude is told what changed.
+Nothing is ever applied without your click, and originals are backed up in
+`.chaosmonkey/backups/`. Full details: [`claude-code-plugin/README.md`](claude-code-plugin/README.md).
+
+### Developing on the frontend with the backend
+
+`npm run dev` in `frontend/` proxies `/api` to the backend on `127.0.0.1:8000`. If the backend
+isn't running, the app quietly falls back to the in-browser scanner.
 
 ## API summary
 
