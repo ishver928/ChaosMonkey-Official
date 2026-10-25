@@ -47,7 +47,7 @@ reliable than that, in specific ways:
 | **Can invent problems or miss real ones.** It only reports what the model happens to notice. | **Rule-based detectors run every time.** Regex, Python AST and JS rules run without any AI. If a local model is used, each finding must quote code that exists **verbatim** in your file and match a known CWE pattern, or it's thrown away. |
 | **Your code, and the secrets in it, go to a cloud service.** Asking "do I have leaked keys?" sends the keys too. | **Nothing leaves your machine.** The server only talks to `127.0.0.1` and refuses to start otherwise. Secret values are masked before they're shown, logged, exported, or handed to Claude Code. |
 | **Fixes are suggestions you have to trust.** | **Fixes are checked.** Each patch is re-parsed and re-scanned before it's marked verified. With the plugin, applied fixes are backed up first and verified again on the real project. |
-| **Works only when a model is available.** | **Works with no AI at all.** Without Ollama it runs in detector-only mode. The UI always shows which mode ran. |
+| **Works only when a model is available.** | **Works with no AI at all.** Detection is always deterministic. Local AI (Ollama) is off by default and only adds explanations when you switch it on. The UI always shows which mode ran. |
 
 ChaosMonkey isn't a replacement for a security audit. See [Limitations](#limitations-honest).
 It's a fast, repeatable checkpoint to run before AI-written code ships.
@@ -115,10 +115,10 @@ the unzipped folder.
 | **Node.js 18+** | the web UI (and the Claude Code plugin) | https://nodejs.org |
 | **Python 3.11+** | the analysis backend | https://python.org (Windows: tick "Add python.exe to PATH") |
 | Git | cloning, and the Claude Code plugin's marketplace step | https://git-scm.com |
-| Ollama *(optional)* | full mode with a local AI model | https://ollama.com, then `ollama pull qwen2.5-coder:7b-instruct` |
+| Ollama *(optional)* | AI-written explanations from a local model | https://ollama.com, then `ollama pull qwen2.5-coder:7b-instruct` and start the backend with `AI_ENABLED=1` |
 | Docker *(optional)* | the sandbox "is this really exploitable?" check | https://docker.com |
 
-Without Ollama everything still works in detector-only mode.
+Without Ollama, or with local AI left off (the default), everything still works in detector-only mode.
 
 ### 3. Pick how you want to use it
 

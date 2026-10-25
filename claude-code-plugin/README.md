@@ -32,7 +32,7 @@ validation, severity scoring and fix verification all stay in the existing backe
   `.chaosmonkey/backups/<timestamp>/`, and a re-scan reports `fix_verified` or `fix_failed`
   for each fix.
 - **Honest mode.** The UI and the MCP summary show which analysis mode ran: `full` (local
-  Ollama), `mock` (recorded responses) or `detector-only` (no Ollama).
+  Ollama explanations on), `mock` (deterministic stub) or `detector-only` (local AI off, the default, or Ollama unavailable).
 
 ## Requirements
 
@@ -42,7 +42,7 @@ validation, severity scoring and fix verification all stay in the existing backe
 - The ChaosMonkey backend set up: `backend/.venv` with `backend/requirements.txt` installed
   (see the repo README)
 - The frontend built once, so the backend can serve it: `cd frontend && npm install && npm run build`
-- Optional: Ollama on `127.0.0.1:11434` for `full` mode
+- Optional: Ollama on `127.0.0.1:11434` plus `AI_ENABLED=1` (or the in-app AI toggle) for `full` mode
 
 ## Install (local marketplace)
 
