@@ -90,6 +90,8 @@ class _PluginState:
         self.subscribers: int = 0
         self.events: list[dict] = []
         self.seq: int = 0
+        # scan_id -> review record (see plugin_apply.py); in memory only, like scans.
+        self.reviews: dict[str, dict] = {}
 
     def ui_alive(self) -> bool:
         with self.lock:
@@ -134,11 +136,21 @@ class HeartbeatBody(BaseModel):
 
 # --------------------------------------------------------------------------- helpers
 
+_MODE_TTL_S = 15.0
+_mode_cache: dict = {"at": 0.0, "value": None}
+
+
 def analysis_mode() -> dict:
-    """Which analysis mode the pipeline is in right now (same rule as /api/health)."""
+    """Which analysis mode the pipeline is in right now (same rule as /api/health). Cached briefly:
+    probing an absent Ollama costs a 2 s timeout, and the UI/MCP server poll these routes."""
+    now = time.time()
+    if _mode_cache["value"] is not None and now - _mode_cache["at"] < _MODE_TTL_S:
+        return dict(_mode_cache["value"])
     llm = check_status()
     mode = "full" if llm.available and llm.mode == "ollama" else ("mock" if llm.mode == "mock" else "detector-only")
-    return {"mode": mode, "llm_mode": llm.mode, "model": llm.model}
+    value = {"mode": mode, "llm_mode": llm.mode, "model": llm.model}
+    _mode_cache.update(at=now, value=value)
+    return dict(value)
 
 
 def rule_title(rule_id: str, cwe_id: Optional[str]) -> str:

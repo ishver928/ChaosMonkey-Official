@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .api.routes import router as api_router
+from .api.plugin_apply import router as plugin_apply_router
 from .api.plugin_routes import router as plugin_router
 from .api.sandbox_routes import router as sandbox_router
 from .config import settings
@@ -73,4 +74,5 @@ app.include_router(demo_router)
 app.include_router(sandbox_router)
 # Additive (Claude Code plugin): plugin routes + the built UI served from this same origin.
 app.include_router(plugin_router)
+app.include_router(plugin_apply_router)
 install_ui(app)
